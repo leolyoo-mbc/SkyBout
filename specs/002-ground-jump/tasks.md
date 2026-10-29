@@ -16,16 +16,16 @@
 
 **Purpose**: 기존 프로젝트의 안전한 증분 작업과 검증 기반을 준비한다.
 
-- [ ] T001 `ProjectSettings/ProjectVersion.txt`, `Packages/manifest.json`, `Assets/Scenes/SampleScene.unity`, `ProjectSettings/EditorBuildSettings.asset`, `SkyBout.slnx`의 현재 상태와 기존 변경을 확인하고 `specs/002-ground-jump/quickstart.md`에 실행 환경·기준 상태를 기록한다. Unity 6000.3.26f1 프로젝트를 재사용하고 패키지 추가나 사용자 변경 초기화를 하지 않는다.
-- [ ] T002 `Assets/Tests/PlayMode/MovementAndCameraTests.cs`를 기존 Test Runner에서 실행해 기준 결과를 `specs/002-ground-jump/quickstart.md`에 기록한다. 실행 환경이 없으면 미실행과 사유를 남기고 통과로 표시하지 않는다.
+- [X] T001 `ProjectSettings/ProjectVersion.txt`, `Packages/manifest.json`, `Assets/Scenes/SampleScene.unity`, `ProjectSettings/EditorBuildSettings.asset`, `SkyBout.slnx`의 현재 상태와 기존 변경을 확인하고 `specs/002-ground-jump/quickstart.md`에 실행 환경·기준 상태를 기록한다. Unity 6000.3.26f1 프로젝트를 재사용하고 패키지 추가나 사용자 변경 초기화를 하지 않는다.
+- [X] T002 `Assets/Tests/PlayMode/MovementAndCameraTests.cs`를 기존 Test Runner에서 실행해 기준 결과를 `specs/002-ground-jump/quickstart.md`에 기록한다. 실행 환경이 없으면 미실행과 사유를 남기고 통과로 표시하지 않는다.
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 **Purpose**: 세 스토리에 공통인 테스트 픽스처와 지지 판정을 마련한다. 이 단계 완료 전 스토리 구현을 시작하지 않는다.
 
-- [ ] T003 `Assets/Tests/PlayMode/JumpTests.cs`와 `Assets/Tests/PlayMode/JumpTests.cs.meta`에 기존 실제 입력 자산 복제, 가상 Keyboard, 동적 캡슐·Ground·발 위치 구성, 입력 업데이트와 물리 스텝 분리, 정착 대기 및 높이 기록 기능을 갖춘 공통 픽스처를 만든다. Space 단독 입력에 Move 벡터를 요구하지 않으며 입력/Physics 모드·기기·씬을 teardown에서 복원한다. 기존 `Assets/Tests/PlayMode/SkyBout.PlayModeTests.asmdef`를 재사용한다.
-- [ ] T004 `Assets/Tests/PlayMode/JumpTests.cs`에 평지 지지, 가장자리 이탈, 옆면·트리거 접촉, 발보다 먼 표면, 상승 중 잔류 접촉을 구분하는 접지 시험을 추가한다. 실제 물리 정착 전 접지로 간주하지 않으며, 동일 높이만으로 허공 착지를 허용하지 않는지 검증한다.
-- [ ] T005 `Assets/Scripts/PlayerMovement.cs`에서 CheckSphere 단독 접지를 재사용 접촉 버퍼와 현재 발아래 짧은 쿼리의 조합으로 교체한다. Unity 지원 API인 `Physics.GetContacts(playerCollider, contactBuffer)`를 사용하고 마스크·위쪽 법선·발 부근 접점·접촉 허용 거리·상승 배제를 검사한다. 모델 제약 “Ground 포함, 자기 레이어 제외”, “기존 발 위치 자식 참조 유지”, “위쪽 법선 기준, 발 부근 거리와 작은 접촉 허용 오차. 일반 사용자 튜닝 항목으로 확대하지 않음”, “고정 크기 재사용 ContactPoint 배열”을 지키고 포화 진단을 마련한다. T004 및 기존 접지 시험을 실행해 결과를 확인한다.
+- [X] T003 `Assets/Tests/PlayMode/JumpTests.cs`와 `Assets/Tests/PlayMode/JumpTests.cs.meta`에 기존 실제 입력 자산 복제, 가상 Keyboard, 동적 캡슐·Ground·발 위치 구성, 입력 업데이트와 물리 스텝 분리, 정착 대기 및 높이 기록 기능을 갖춘 공통 픽스처를 만든다. Space 단독 입력에 Move 벡터를 요구하지 않으며 입력/Physics 모드·기기·씬을 teardown에서 복원한다. 기존 `Assets/Tests/PlayMode/SkyBout.PlayModeTests.asmdef`를 재사용한다.
+- [X] T004 `Assets/Tests/PlayMode/JumpTests.cs`에 평지 지지, 가장자리 이탈, 옆면·트리거 접촉, 발보다 먼 표면, 상승 중 잔류 접촉을 구분하는 접지 시험을 추가한다. 실제 물리 정착 전 접지로 간주하지 않으며, 동일 높이만으로 허공 착지를 허용하지 않는지 검증한다.
+- [X] T005 `Assets/Scripts/PlayerMovement.cs`에서 CheckSphere 단독 접지를 재사용 접촉 버퍼와 현재 발아래 짧은 쿼리의 조합으로 교체한다. Unity 3D 지원 API인 `Collision.GetContacts(contactBuffer)`를 OnCollisionEnter/Stay에서 사용하고 OnCollisionExit에서 지지 집합을 갱신하며 마스크·위쪽 법선·발 부근 접점·접촉 허용 거리·상승 배제를 검사한다. 모델 제약 “Ground 포함, 자기 레이어 제외”, “기존 발 위치 자식 참조 유지”, “위쪽 법선 기준, 발 부근 거리와 작은 접촉 허용 오차. 일반 사용자 튜닝 항목으로 확대하지 않음”, “고정 크기 재사용 ContactPoint 배열”을 지키고 포화 진단을 마련한다. `Assets/Tests/PlayMode/MovementAndCameraTests.cs`의 지상 시작 시험에 실제 정착 스텝을 먼저 추가하고 T004 및 기존 접지 시험을 실행해 결과를 확인한다.
 
 **Checkpoint**: 실제 지지와 단순 근접을 구분하며 테스트 픽스처가 반복 실행 후 전역 상태를 복원한다.
 
@@ -36,17 +36,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T006 [P] [US1] `Assets/Tests/PlayMode/JumpTests.cs`에 `contracts/player-jump.md`의 Player/Jump Button·Space 바인딩 계약, 실제 자산 입력 경유, 중앙 20회 상승·하강·착지·재점프 및 2m/4m 조건별 5회 높이 측정 시험을 추가한다. 발의 정착 높이 대비 정점을 측정해 ±5%와 관통·공중 정지 0회를 판정한다. 구현 전 실패가 기능 부재 때문인지 확인한다.
+- [X] T006 [P] [US1] `Assets/Tests/PlayMode/JumpTests.cs`에 `contracts/player-jump.md`의 Player/Jump Button·Space 바인딩 계약, 실제 자산 입력 경유, 중앙 20회 상승·하강·착지·재점프 및 2m/4m 조건별 5회 높이 측정 시험을 추가한다. 발의 정착 높이 대비 정점을 측정해 ±5%와 관통·공중 정지 0회를 판정한다. 구현 전 실패가 기능 부재 때문인지 확인한다.
 
 ### Implementation for User Story 1
 
-- [ ] T007 [P] [US1] `Assets/Player_Actions.inputactions`에 `Player/Jump` Button(expectedControlType=Button), `<Keyboard>/space`, `Keyboard&Mouse` 그룹을 추가한다. 기존 Player 맵·Move 액션·바인딩의 ID와 GUID를 보존하고 홀드·반복 인터랙션을 넣지 않는다.
-- [ ] T008 [US1] `Assets/Scripts/PlayerMovement.cs`에 직렬화 jumpHeight와 점프 런타임 필드를 추가한다. 모델 제약 “유한한 양수. 초기 제안 2, 검증값 2/4. 이륙 시 지면 대비 발의 수직 상승량”, “현재 유효한 발밑 지지 접촉. 단순 높이나 근접 여부가 아님”, “Grounded, Rising, Falling. grounded와 수직 속도로 도출해 중복 상태 불일치 방지”를 반영한다. Player/Move·Player/Jump 누락 및 Rigidbody·중력 설정의 진단을 추가한다.
-- [ ] T009 [US1] `Assets/Scripts/PlayerMovement.cs`에 `OnJump(InputValue)` 누름·해제 수신과 1회 요청 소비를 구현한다. 제약 “지상에서 유효하게 받은 누름 1회. 다음 FixedUpdate에서 무조건 소진”을 지키고 입력 수신 시·소비 시 현재 지지를 재검사한다. 유효 누름 직후 해제해도 요청은 보존하되 공중 누름은 접수하지 않고 이륙 틱에는 접지를 해제한다.
-- [ ] T010 [US1] `Assets/Scripts/PlayerMovement.cs`에서 `sqrt(2 * abs(Physics.gravity.y) * jumpHeight)` 기반 수직 초기 속도를 한 번 적용하고 XZ를 보존한다. “useGravity=true, isKinematic=false, linearDamping=0 및 Y 이동 허용”을 검증하고 중력·충돌은 PhysX에 맡긴다. 실제 높이 오차가 ±5%를 넘으면 고정 간격 보정을 적용해 재측정하되 정점/착지 좌표를 강제 고정하지 않는다.
-- [ ] T011 [US1] `Assets/Scenes/SampleScene.unity`의 기존 Player에 jumpHeight=2를 직렬화하고 기존 PlayerInput SendMessages·Player 맵·입력 자산·발 참조·Ground 마스크를 유지한다. 스크립트 GUID와 안전한 시작 위치를 보존하고 Y 이동 잠금이나 별도 점프 오브젝트를 추가하지 않는다.
-- [ ] T012 [US1] `Assets/Tests/PlayMode/JumpTests.cs`에 잘못된 높이(0/음수/NaN/무한대), 중력·damping·키네마틱·Y 잠금, 필수 액션/참조/마스크 누락의 진단 시험을 추가하고 `Assets/Scripts/PlayerMovement.cs`의 검증과 대조한다. 올바른 설정은 활성 상태이고 잘못된 설정은 오류 후 기능을 실행하지 않아야 한다.
-- [ ] T013 [US1] `Assets/Tests/PlayMode/JumpTests.cs`의 US1 시험을 실행하고 중앙 20회 결과, 각 높이·입력 조건의 측정값과 허용 오차를 `specs/002-ground-jump/quickstart.md`에 기록한다. T006의 이동 표본은 필요 시 충분히 넓은 테스트 지형에서 실행하며 실패 또는 미실행을 통과로 처리하지 않는다.
+- [X] T007 [P] [US1] `Assets/Player_Actions.inputactions`에 `Player/Jump` Button(expectedControlType=Button), `<Keyboard>/space`, `Keyboard&Mouse` 그룹을 추가한다. 기존 Player 맵·Move 액션·바인딩의 ID와 GUID를 보존하고 홀드·반복 인터랙션을 넣지 않는다.
+- [X] T008 [US1] `Assets/Scripts/PlayerMovement.cs`에 직렬화 jumpHeight와 점프 런타임 필드를 추가한다. 모델 제약 “유한한 양수. 초기 제안 2, 검증값 2/4. 이륙 시 지면 대비 발의 수직 상승량”, “현재 유효한 발밑 지지 접촉. 단순 높이나 근접 여부가 아님”, “Grounded, Rising, Falling. grounded와 수직 속도로 도출해 중복 상태 불일치 방지”를 반영한다. Player/Move·Player/Jump 누락 및 Rigidbody·중력 설정의 진단을 추가한다.
+- [X] T009 [US1] `Assets/Scripts/PlayerMovement.cs`에 `OnJump(InputValue)` 누름·해제 수신과 1회 요청 소비를 구현한다. 제약 “지상에서 유효하게 받은 누름 1회. 다음 FixedUpdate에서 무조건 소진”을 지키고 입력 수신 시·소비 시 현재 지지를 재검사한다. 유효 누름 직후 해제해도 요청은 보존하되 공중 누름은 접수하지 않고 이륙 틱에는 접지를 해제한다.
+- [X] T010 [US1] `Assets/Scripts/PlayerMovement.cs`에서 `sqrt(2 * abs(Physics.gravity.y) * jumpHeight)` 기반 수직 초기 속도를 한 번 적용하고 XZ를 보존한다. “useGravity=true, isKinematic=false, linearDamping=0 및 Y 이동 허용”을 검증하고 중력·충돌은 PhysX에 맡긴다. 실제 높이 오차가 ±5%를 넘으면 고정 간격 보정을 적용해 재측정하되 정점/착지 좌표를 강제 고정하지 않는다.
+- [X] T011 [US1] `Assets/Scenes/SampleScene.unity`의 기존 Player에 jumpHeight=2를 직렬화하고 기존 PlayerInput SendMessages·Player 맵·입력 자산·발 참조·Ground 마스크를 유지한다. 스크립트 GUID와 안전한 시작 위치를 보존하고 Y 이동 잠금이나 별도 점프 오브젝트를 추가하지 않는다.
+- [X] T012 [US1] `Assets/Tests/PlayMode/JumpTests.cs`에 잘못된 높이(0/음수/NaN/무한대), 중력·damping·키네마틱·Y 잠금, 필수 액션/참조/마스크 누락의 진단 시험을 추가하고 `Assets/Scripts/PlayerMovement.cs`의 검증과 대조한다. 올바른 설정은 활성 상태이고 잘못된 설정은 오류 후 기능을 실행하지 않아야 한다.
+- [X] T013 [US1] `Assets/Tests/PlayMode/JumpTests.cs`의 US1 시험을 실행하고 중앙 20회 결과, 각 높이·입력 조건의 측정값과 허용 오차를 `specs/002-ground-jump/quickstart.md`에 기록한다. T006의 이동 표본은 필요 시 충분히 넓은 테스트 지형에서 실행하며 실패 또는 미실행을 통과로 처리하지 않는다.
 
 **Checkpoint**: 기본 점프·착지·높이 조정이 기존 씬에서 동작하고 SC-001~002의 증거가 있다. 이 시점이 권장 MVP다.
 
@@ -57,15 +57,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T014 [US2] `Assets/Tests/PlayMode/JumpTests.cs`에 상승·정점·하강 재입력, 착지 후까지 홀드, 착지 직전 누름 각각 5회와 착지 후 해제·새 누름 시험을 추가한다. 같은 입력 업데이트의 짧은 누름/해제, 한 입력 뒤 여러 FixedUpdate, 요청 후 지지 상실도 포함해 추가 상승·입력 예약·중복 소비를 검증한다.
-- [ ] T015 [US2] `Assets/Tests/PlayMode/JumpTests.cs`에 활성화 시 Space 홀드, 초점 상실 전 대기 요청, 공중 초점 상실/복귀, 비활성화/재활성화 시험을 추가한다. 복귀 홀드로 점프하지 않으며 해제 후 새 누름만 허용되고 초점 상실 시 Y는 유지되는지 검사한다.
+- [X] T014 [US2] `Assets/Tests/PlayMode/JumpTests.cs`에 상승·정점·하강 재입력, 착지 후까지 홀드, 착지 직전 누름 각각 5회와 착지 후 해제·새 누름 시험을 추가한다. 같은 입력 업데이트의 짧은 누름/해제, 한 입력 뒤 여러 FixedUpdate, 요청 후 지지 상실도 포함해 추가 상승·입력 예약·중복 소비를 검증한다.
+- [X] T015 [US2] `Assets/Tests/PlayMode/JumpTests.cs`에 활성화 시 Space 홀드, 초점 상실 전 대기 요청, 공중 초점 상실/복귀, 비활성화/재활성화 시험을 추가한다. 복귀 홀드로 점프하지 않으며 해제 후 새 누름만 허용되고 초점 상실 시 Y는 유지되는지 검사한다.
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] `Assets/Scripts/PlayerMovement.cs`에서 jumpHeld와 jumpReadyAfterRelease로 누름 전이·해제 게이트를 완성한다. 모델 제약 “눌림 전이를 구분하는 현재 입력 상태”, “활성화/초점 복귀 후 해제 확인 여부”를 지키고 Move 중립 게이트와 분리한다. 지속 홀드·공중 재입력이 pendingJump를 만들거나 착지 후 부활시키지 않도록 한다.
-- [ ] T017 [US2] `Assets/Scripts/PlayerMovement.cs`의 OnEnable/OnDisable/OnApplicationFocus와 입력 동기화 처리에서 pendingJump를 제거하고 해제 게이트를 재설정한다. “pending 제거, 수평 정지, 점프 해제 게이트 잠금; 물리 Y는 유지”를 지키고 기존 Move 중립 처리를 보존한다.
-- [ ] T018 [P] [US2] `specs/002-ground-jump/contracts/player-jump.md`에 T014~T015의 입력·물리 스케줄 경계와 기대 결과의 추적표를 추가한다. 단발 요청은 다음 틱까지만 유효하고 공중 누름은 예약되지 않음을 명시하며 기존 계약을 확장 기능으로 변경하지 않는다.
-- [ ] T019 [US2] `Assets/Tests/PlayMode/JumpTests.cs`의 US1·US2 시험을 함께 실행하고 SC-003, SC-005의 초점/허공 입력 결과를 `specs/002-ground-jump/quickstart.md`에 기록한다. 새 글라이더/낙사 기능이 호출되지 않는지도 확인한다.
+- [X] T016 [US2] `Assets/Scripts/PlayerMovement.cs`에서 jumpHeld와 jumpReadyAfterRelease로 누름 전이·해제 게이트를 완성한다. 모델 제약 “눌림 전이를 구분하는 현재 입력 상태”, “활성화/초점 복귀 후 해제 확인 여부”를 지키고 Move 중립 게이트와 분리한다. 지속 홀드·공중 재입력이 pendingJump를 만들거나 착지 후 부활시키지 않도록 한다.
+- [X] T017 [US2] `Assets/Scripts/PlayerMovement.cs`의 OnEnable/OnDisable/OnApplicationFocus와 입력 동기화 처리에서 pendingJump를 제거하고 해제 게이트를 재설정한다. “pending 제거, 수평 정지, 점프 해제 게이트 잠금; 물리 Y는 유지”를 지키고 기존 Move 중립 처리를 보존한다.
+- [X] T018 [P] [US2] `specs/002-ground-jump/contracts/player-jump.md`에 T014~T015의 입력·물리 스케줄 경계와 기대 결과의 추적표를 추가한다. 단발 요청은 다음 틱까지만 유효하고 공중 누름은 예약되지 않음을 명시하며 기존 계약을 확장 기능으로 변경하지 않는다.
+- [X] T019 [US2] `Assets/Tests/PlayMode/JumpTests.cs`의 US1·US2 시험을 함께 실행하고 SC-003, SC-005의 초점/허공 입력 결과를 `specs/002-ground-jump/quickstart.md`에 기록한다. 새 글라이더/낙사 기능이 호출되지 않는지도 확인한다.
 
 **Checkpoint**: 단발 점프가 입력 경계와 초점 전환에도 유지된다. US1 회귀도 통과해야 한다.
 
@@ -76,15 +76,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T020 [US3] `Assets/Tests/PlayMode/JumpTests.cs`에 8방향 이동 점프, 대각선 속도 제한, 공중 방향 변경·감속, 수평 갱신 시 Y 보존, 착지 후 이동 시험을 추가한다. 모델 제약 “maxSpeed/acceleration/deceleration/turnAcceleration 유지. 지상·공중 공통”을 기대값에 반영한다.
-- [ ] T021 [P] [US3] `Assets/Tests/PlayMode/MovementAndCameraTests.cs`에 실제 점프의 상승·정점·하강·착지 구간에서 카메라 추적, 캐릭터 전체/주변 표면 가시성, 정지·이동 중 커서 무관 동작을 검증하는 시험을 추가한다. 실제 Rigidbody 점프를 사용하고 상태별 화면 투영을 검사한다.
+- [X] T020 [US3] `Assets/Tests/PlayMode/JumpTests.cs`에 8방향 이동 점프, 대각선 속도 제한, 공중 방향 변경·감속, 수평 갱신 시 Y 보존, 착지 후 이동 시험을 추가한다. 모델 제약 “maxSpeed/acceleration/deceleration/turnAcceleration 유지. 지상·공중 공통”을 기대값에 반영한다.
+- [X] T021 [P] [US3] `Assets/Tests/PlayMode/MovementAndCameraTests.cs`에 실제 점프의 상승·정점·하강·착지 구간에서 카메라 추적, 캐릭터 전체/주변 표면 가시성, 정지·이동 중 커서 무관 동작을 검증하는 시험을 추가한다. 실제 Rigidbody 점프를 사용하고 상태별 화면 투영을 검사한다.
 
 ### Implementation for User Story 3
 
-- [ ] T022 [US3] `Assets/Scripts/PlayerMovement.cs`에서 airControl 경로와 공중 무입력 조기 반환을 제거하고 지상과 공중의 수평 가속·감속·방향 전환 계산을 통일한다. `Assets/Scenes/SampleScene.unity`의 airControl 직렬화 값을 정리하며 기존 maxSpeed 등 지상 수치는 변경하지 않고 수직 속도를 보존한다.
-- [ ] T023 [US3] `Assets/Tests/PlayMode/MovementAndCameraTests.cs`의 기존 0.3배 공중 가속 기대값을 공통 설정으로 갱신한다. 새로운 접지 검사에 필요한 실제 물리 정착 스텝을 추가하되 지상 8방향·반대 입력·중립 복귀·중력 보존 검증은 유지한다.
-- [ ] T024 [US3] `Assets/Scripts/TopDownCameraFollow.cs`와 `Assets/Scenes/SampleScene.unity`의 기존 추적을 2m/4m 점프에 대해 확인한다. T021 또는 수동 검증에서 가시성이 실패한 경우에만 최소 거리/시야 설정을 조정하고 기존 캐릭터 단독 추적·커서 무관 규칙을 보존한다. 모두 통과하면 변경 없이 결과만 남긴다.
-- [ ] T025 [US3] `Assets/Tests/PlayMode/JumpTests.cs`, `Assets/Tests/PlayMode/MovementAndCameraTests.cs`를 함께 실행하고 실제 씬에서 8방향·공중 변경/해제·가시성·착지 후 이동을 플레이해 SC-004 결과를 `specs/002-ground-jump/quickstart.md`에 기록한다.
+- [X] T022 [US3] `Assets/Scripts/PlayerMovement.cs`에서 airControl 경로와 공중 무입력 조기 반환을 제거하고 지상과 공중의 수평 가속·감속·방향 전환 계산을 통일한다. `Assets/Scenes/SampleScene.unity`의 airControl 직렬화 값을 정리하며 기존 maxSpeed 등 지상 수치는 변경하지 않고 수직 속도를 보존한다.
+- [X] T023 [US3] `Assets/Tests/PlayMode/MovementAndCameraTests.cs`의 기존 0.3배 공중 가속 기대값을 공통 설정으로 갱신한다. 새로운 접지 검사에 필요한 실제 물리 정착 스텝을 추가하되 지상 8방향·반대 입력·중립 복귀·중력 보존 검증은 유지한다.
+- [X] T024 [US3] `Assets/Scripts/TopDownCameraFollow.cs`와 `Assets/Scenes/SampleScene.unity`의 기존 추적을 2m/4m 점프에 대해 확인한다. T021 또는 수동 검증에서 가시성이 실패한 경우에만 최소 거리/시야 설정을 조정하고 기존 캐릭터 단독 추적·커서 무관 규칙을 보존한다. 모두 통과하면 변경 없이 결과만 남긴다.
+- [X] T025 [US3] `Assets/Tests/PlayMode/JumpTests.cs`, `Assets/Tests/PlayMode/MovementAndCameraTests.cs`를 함께 실행하고 실제 씬에서 8방향·공중 변경/해제·가시성·착지 후 이동을 플레이해 SC-004 결과를 `specs/002-ground-jump/quickstart.md`에 기록한다.
 
 **Checkpoint**: 세 스토리가 동작하며 기존 지상 이동·카메라 동작의 의도하지 않은 회귀가 없다.
 
@@ -92,9 +92,9 @@
 
 **Purpose**: 실제 씬 생명주기, 자산 무결성 및 명세 전체 기능 완료 증거를 확인한다. FPS·Profiler·메모리 할당 성능 검증은 제외한다.
 
-- [ ] T026 `Assets/Tests/PlayMode/JumpTests.cs`에 실제 `Assets/Scenes/SampleScene.unity`를 로드하고 자동 Update/FixedUpdate/LateUpdate로 동작하는 통합 시험을 추가한다. 실제 자산과 PlayerInput을 통해 점프·착지·재로드 후 안전한 지상 시작·가장자리 하강·옆면 비접지·초점 전환을 확인하며 실패 시 물리/입력 전역 설정과 원래 씬도 복원한다. 수동 메서드 호출 시험으로 이 통합 시험을 대체하지 않는다.
-- [ ] T027 [P] `Assets/Player_Actions.inputactions`, `Assets/Scenes/SampleScene.unity`, `Assets/Scripts/SkyBout.Runtime.asmdef`, `Assets/Tests/PlayMode/SkyBout.PlayModeTests.asmdef`, 신규 `Assets/Tests/PlayMode/JumpTests.cs.meta`의 GUID·참조·컴포넌트 연결과 컴파일을 점검한다. `ProjectSettings/EditorBuildSettings.asset`, `SkyBout.slnx`, `Packages/manifest.json`에 의도하지 않은 변경이 없는지 기준 상태와 비교한다.
-- [ ] T028 `specs/002-ground-jump/quickstart.md`의 전체 검증을 수행해 SC-001~005별 반복 횟수·높이 오차·추가 점프 횟수·실제 씬 결과를 최종 정리한다. `specs/002-ground-jump/tasks.md`는 증거가 있는 작업만 완료 처리하고 실패/미실행·잔여 위험을 명시한다. 글라이더·낙사 복귀·온라인 기능은 범위에 추가하지 않는다.
+- [X] T026 `Assets/Tests/PlayMode/JumpTests.cs`에 실제 `Assets/Scenes/SampleScene.unity`를 로드하고 자동 Update/FixedUpdate/LateUpdate로 동작하는 통합 시험을 추가한다. 실제 자산과 PlayerInput을 통해 점프·착지·재로드 후 안전한 지상 시작·가장자리 하강·옆면 비접지·초점 전환을 확인하며 실패 시 물리/입력 전역 설정과 원래 씬도 복원한다. 수동 메서드 호출 시험으로 이 통합 시험을 대체하지 않는다.
+- [X] T027 [P] `Assets/Player_Actions.inputactions`, `Assets/Scenes/SampleScene.unity`, `Assets/Scripts/SkyBout.Runtime.asmdef`, `Assets/Tests/PlayMode/SkyBout.PlayModeTests.asmdef`, 신규 `Assets/Tests/PlayMode/JumpTests.cs.meta`의 GUID·참조·컴포넌트 연결과 컴파일을 점검한다. `ProjectSettings/EditorBuildSettings.asset`, `SkyBout.slnx`, `Packages/manifest.json`에 의도하지 않은 변경이 없는지 기준 상태와 비교한다.
+- [X] T028 `specs/002-ground-jump/quickstart.md`의 전체 검증을 수행해 SC-001~005별 반복 횟수·높이 오차·추가 점프 횟수·실제 씬 결과를 최종 정리한다. `specs/002-ground-jump/tasks.md`는 증거가 있는 작업만 완료 처리하고 실패/미실행·잔여 위험을 명시한다. 글라이더·낙사 복귀·온라인 기능은 범위에 추가하지 않는다.
 
 ## Dependencies & Execution Order
 

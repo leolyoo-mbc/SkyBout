@@ -44,6 +44,17 @@
 
 시작 위치 Y나 이전 이륙 높이와 비교해 강제로 착지시키지 않는다. 비활성화 또는 초점 상실 시 요청을 삭제한다.
 
+## 입력 경계 검증 추적
+
+| 경계 | 시험 및 기대 결과 |
+| --- | --- |
+| 상승·정점·하강·착지 직전 재입력, 지속 홀드 | JumpTests.AirAndHeldInputNeverAutoJump: 각 조건 5회, 추가/예약 점프 없음 |
+| 한 업데이트의 짧은 누름·해제, 여러 물리 틱 | ShortPressIsConsumedOnceAndLosingSupportDiscardsRequest: 1회만 소비 |
+| 접수 후 발밑 지지 상실 | 동일 시험: 다음 틱에 폐기하고 추락 유지 |
+| 초점·비활성화/재활성화 | FocusAndDisableClearRequestsAndRequireRelease: 요청 제거, Y 보존, 해제 후 새 누름만 허용 |
+
+Input System 1.20.1의 SendMessages는 Button 해제 콜백을 생략하므로 onAfterUpdate에서 Jump 컨트롤이 해제됐는지 확인한다. 해제 확인은 유효하게 접수한 짧은 누름 요청을 취소하지 않는다.
+
 ## 검증 계약
 
 실제 입력 자산·가상 키보드를 거쳐 누름/해제/초점 상태를 검증한다. 반복 횟수와 허용 오차는 [spec.md](../spec.md)의 SC-001~005를 따른다. 테스트 관측을 위해 내부 상태를 읽을 수 있으나 테스트 전용 공개 게임 API는 요구하지 않는다.

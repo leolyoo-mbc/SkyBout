@@ -78,6 +78,7 @@ public class MovementAndCameraTests
         movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);
         Physics.SyncTransforms();
         Press();
+        Step(5); // Actual contacts must exist before a grounded-start assertion.
     }
 
     [UnityTearDown]
@@ -179,7 +180,7 @@ public class MovementAndCameraTests
         Assert.That(player.transform.GetChild(0).position.y, Is.EqualTo(5f).Within(0.001f));
         Press(Key.W);
         movement.SendMessage("FixedUpdate");
-        Assert.That(body.linearVelocity.z, Is.EqualTo(10f * 0.3f * Time.fixedDeltaTime).Within(0.0001f));
+        Assert.That(body.linearVelocity.z, Is.EqualTo(10f * Time.fixedDeltaTime).Within(0.0001f));
         Assert.That(body.linearVelocity.y, Is.EqualTo(-3f).Within(0.0001f));
         Physics.Simulate(Time.fixedDeltaTime);
         Assert.That(body.linearVelocity.y, Is.LessThan(-3f));
@@ -224,6 +225,62 @@ public class MovementAndCameraTests
         Assert.That(camera.fieldOfView, Is.EqualTo(fov));
     }
 
+    [UnityTest]
+    public IEnumerator CameraKeepsActualJumpAndNearbySurfaceVisible()
+    {
+        cameraObject = new GameObject("JumpCamera");
+        cameraObject.SetActive(false);
+        var camera = cameraObject.AddComponent<Camera>();
+        camera.aspect = 16f / 9f;
+        var follow = cameraObject.AddComponent<TopDownCameraFollow>();
+        SetField(follow, "target", player.transform);
+        cameraObject.SetActive(true);
+        yield return null;
+        foreach (float height in new[] { 2f, 4f })
+        {
+            ResetPlayer();
+            SetField(movement, "jumpHeight", height);
+            Press(Key.Space);
+            Step();
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            bool rose = false, fell = false;
+            for (int step = 0; step < 110; step++)
+            {
+                Step();
+                rose |= body.linearVelocity.y > 0.1f;
+                fell |= body.linearVelocity.y < -0.1f;
+                follow.SendMessage("LateUpdate");
+                Bounds bounds = player.GetComponent<Collider>().bounds;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 point = bounds.center + Vector3.Scale(bounds.extents,
+                        new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1));
+                    AssertVisible(camera, point);
+                }
+                foreach (var offset in new[] { Vector3.left, Vector3.right, Vector3.forward, Vector3.back })
+                    AssertVisible(camera, new Vector3(player.transform.position.x, 0f, player.transform.position.z) + offset);
+                Vector3 before = camera.transform.position;
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = new Vector2(10, 10) });
+                InputSystem.Update(); follow.SendMessage("LateUpdate");
+                Vector3 first = camera.transform.position;
+                camera.transform.position = before;
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = new Vector2(900, 300) });
+                InputSystem.Update(); follow.SendMessage("LateUpdate");
+                Assert.That(Vector3.Distance(first, camera.transform.position), Is.LessThan(0.0001f));
+            }
+            Assert.That(rose && fell, Is.True);
+            Press();
+        }
+    }
+
+    private static void AssertVisible(Camera camera, Vector3 point)
+    {
+        Vector3 viewport = camera.WorldToViewportPoint(point);
+        Assert.That(viewport.z, Is.GreaterThan(0f));
+        Assert.That(viewport.x, Is.InRange(0f, 1f));
+        Assert.That(viewport.y, Is.InRange(0f, 1f));
+    }
+
     [Test]
     public void GroundMaskMustIncludeTheGroundLayer()
     {
@@ -237,7 +294,7 @@ public class MovementAndCameraTests
     {
         InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys));
         InputSystem.Update();
-        if (keys.Length == 1)
+        if (keys.Length == 1 && keys[0] != Key.Space)
         {
             Assert.That(keyboard[keys[0]].isPressed, Is.True, "The virtual keyboard event must be processed.");
             var move = playerInput.actions["Move"];
@@ -262,7 +319,7 @@ public class MovementAndCameraTests
         player.transform.position = start;
         body.linearVelocity = Vector3.zero;
         Physics.SyncTransforms();
-        Step();
+        Step(5);
     }
 
     private void SetRates(float acceleration, float braking)

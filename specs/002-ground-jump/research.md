@@ -15,13 +15,15 @@
 - **Decision**: 기존 Player 맵에 Button/Jump와 Keyboard Space를 추가한다. PlayerInput SendMessages 방식의 OnJump에서 누름/해제를 구분한다. 지상·초점·중립 확인을 통과한 새 누름만 1회 요청으로 보관하고 바로 다음 FixedUpdate에서 재검사 후 소비 또는 폐기한다.
 - **Rationale**: Update 입력과 FixedUpdate의 실행 빈도가 다르므로 짧은 누름을 잃지 않되, 공중 입력을 착지까지 저장하면 안 된다. 이벤트 수신 시와 소비 시 모두 현재 지지 상태를 검사한다. 오래된 grounded 값만으로 입력을 허용하지 않는다.
 - **Alternatives considered**: 매 물리 틱 isPressed 검사(연속 점프), 무조건 요청 저장(착지 예약), 직접 Keyboard.current 검사(기존 자산 경로 우회)를 제외.
+- Input System 1.20.1 PlayerInput 소스에서 SendMessages는 Button의 canceled 콜백을 전달하지 않음을 확인했다. 따라서 onAfterUpdate에서 Jump 컨트롤의 해제를 매번 확인해 jumpHeld를 초기화한다. OnJump의 해제 분기는 직접 전달되는 경우도 안전하게 처리한다.
 - 초점 상실·비활성화는 요청을 지운다. 초기 활성화/초점 복귀 시 Jump가 해제된 것을 확인하기 전 누름을 허용하지 않는다. 기존 Move 중립 게이트와 Jump 해제 게이트는 독립적으로 관리해 WASD를 누른 채 새 점프가 가능하게 한다. Jump 해제는 이미 유효하게 받은 단발 요청을 취소하지 않는다.
 
 ## 3. 지지 접촉과 착지
 
-- **Decision**: 기존 CheckSphere 단독 판정을 발밑 지지 접촉 검사로 교체한다. Physics.GetContacts(playerCollider, contactBuffer)의 재사용 ContactPoint 버퍼에서 Ground 마스크, 위쪽 법선(예: dot(up) >= 0.7), 발 부근 접점, 접촉 오프셋 수준의 분리 거리만 허용한다. 짧은 아래 방향 쿼리로 현재 발아래 표면도 확인하여 직전 물리 스텝의 오래된 접촉으로 가장자리 이탈을 허용하지 않는다.
+- **Decision**: 기존 CheckSphere 단독 판정을 발밑 지지 접촉 검사로 교체한다. OnCollisionEnter/Stay의 Collision.GetContacts(contactBuffer) 재사용 ContactPoint 버퍼에서 Ground 마스크, 위쪽 법선(예: dot(up) >= 0.7), 발 부근 접점, 접촉 오프셋 수준의 분리 거리만 허용한다. 짧은 아래 방향 쿼리로 현재 발아래 표면도 확인하여 직전 물리 스텝의 오래된 접촉으로 가장자리 이탈을 허용하지 않는다.
 - **Rationale**: CheckSphere는 법선과 실제 지지 여부를 알 수 없어 옆면이나 착지 직전 공중을 지상으로 잘못 판단할 수 있다. 상승 속도가 유의미하게 양수이거나 이륙 요청을 소비한 틱이면 지상으로 판단하지 않는다. 근처 표면만으로 접지를 부여하지 않는다.
-- **Alternatives considered**: 출발 Y와 비교(허공 착지), 넓은 OverlapSphere만 사용(옆면 오인), OnCollisionStay 불리언만 저장(수면 및 접촉 소멸 처리 의존)을 제외.
+- **Alternatives considered**: 출발 Y와 비교(허공 착지), 넓은 OverlapSphere만 사용(옆면 오인), OnCollisionStay 불리언만 저장하고 형상을 재확인하지 않는 방식(접촉 소멸·가장자리 이탈 오인)을 제외.
+- 구현 조사에서 Physics.GetContacts/Rigidbody.GetContacts는 Unity 3D API에 없음을 Editor 리플렉션으로 확인했다. Collision.GetContacts로 유효 지지 Collider 집합을 갱신하고 OnCollisionExit에서 제거한다. 수면 중 Stay 콜백이 없어도 집합은 유지하되 현재 발아래 Raycast를 매번 확인한다. OnDisable에서 집합을 비운다.
 - 초기 프레임은 물리 지지 정보가 준비되기 전까지 공중으로 취급한다. 정상적으로 정착한 뒤 입력 검증을 시작한다. 버퍼가 찬 경우 지지 검사에 실패할 수 있으므로 단순 씬에 충분한 용량을 정하고 포화 시 검증 실패를 드러낸다.
 - 지형·몸체 크기는 기존 단위 스케일 캡슐 기준이다. 경사·이동 발판 확장은 하지 않는다.
 

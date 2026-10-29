@@ -45,7 +45,7 @@ specs/002-ground-jump/
 └── checklists/requirements.md
 ```
 
-`tasks.md`는 다음 /speckit.tasks 단계에서 생성하며 이번 단계에서는 작성하지 않는다.
+`tasks.md`는 /speckit.tasks 단계에서 생성했으며 구현 진행 상태를 관리한다. 최종 실행 결과는 [quickstart.md](quickstart.md)의 Completion Evidence를 참조한다.
 
 ### Source Code (repository root)
 
@@ -75,7 +75,7 @@ Assets/
 - [contracts/player-jump.md](contracts/player-jump.md): 플레이어 입력·Inspector·물리 갱신 계약. 외부 HTTP API는 없다.
 - [quickstart.md](quickstart.md): 실제 씬 플레이와 PlayMode 검증 절차.
 - 구현 순서: 테스트 픽스처 확장 → 접지 보완 → 입력/점프 추가 → 공중 조작 통일 → 씬 연결 → 회귀 및 실제 플레이.
-- 완료 판정은 명세 SC-001~005에 따른다. 이 문서는 설계 산출물이며 아직 코드 수정이나 테스트 실행을 수행하지 않았다.
+- 완료 판정은 명세 SC-001~005에 따른다. 이 문서는 설계 산출물이며 구현·최종 검증 결과는 [quickstart.md](quickstart.md)에 별도 기록한다.
 
 ## Complexity Tracking
 

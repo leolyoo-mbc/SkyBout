@@ -26,12 +26,13 @@
 | pendingJump | 지상에서 유효하게 받은 누름 1회. 다음 FixedUpdate에서 무조건 소진 |
 | focused/waitingForNeutral/input | 기존 이동 초점·중립·Vector2 상태 유지 |
 | contactBuffer | 고정 크기 재사용 ContactPoint 배열 |
+| supportingColliders | Collision.GetContacts에서 확인한 유효 지지 Collider 집합. Exit/비활성화 시 제거하며 현재 발밑 쿼리로 재확인 |
 
 Jump 해제 게이트는 Move 중립 게이트와 분리한다. 초점 복귀 후 이동 키를 해제하지 않아도 수평 이동은 기존 게이트에 의해 중단되며, 점프 역시 새 Space 누름 없이는 실행되지 않는다.
 
 ## GroundSupport
 
-Rigidbody와 Ground Collider의 관계로, 마스크·법선·발 부근 접점·분리 거리 및 현재 발아래 표면 확인을 모두 만족할 때만 유효하다. Trigger, 옆면 법선, 멀어진 접점, 상승 중 잔류 접촉은 제외한다. 접촉은 매 물리 틱 및 입력 수신 시 재검증하고 오래된 grounded만으로 누름을 접수하지 않는다.
+Rigidbody와 Ground Collider의 관계로, 마스크·법선·발 부근 접점·분리 거리 및 현재 발아래 표면 확인을 모두 만족할 때만 유효하다. Trigger, 옆면 법선, 멀어진 접점, 상승 중 잔류 접촉은 제외한다. 접촉은 OnCollisionEnter/Stay의 Collision.GetContacts로 수집하고 매 물리 틱 및 입력 수신 시 현재 발밑 Raycast로 재검증한다. 오래된 grounded만으로 누름을 접수하지 않는다. 수면 중에는 지지 집합을 유지하고 비활성화 시 비우며, 재활성화 시 Rigidbody를 깨워 접촉 정보를 다시 구성한다.
 
 ## State Transitions
 
