@@ -1,0 +1,5 @@
+{
+  "name": "SkyBout.Runtime",
+  "references": ["Unity.InputSystem"],
+  "autoReferenced": true
+}

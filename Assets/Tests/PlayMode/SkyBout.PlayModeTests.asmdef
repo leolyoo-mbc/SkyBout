@@ -1,0 +1,6 @@
+{
+  "name": "SkyBout.PlayModeTests",
+  "references": ["SkyBout.Runtime", "Unity.InputSystem"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

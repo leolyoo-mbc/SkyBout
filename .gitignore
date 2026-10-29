@@ -27,6 +27,13 @@
 
 # Visual Studio cache directory
 .vs/
+.vscode/
+.idea/
+.superpowers/
+*.slnx
+/TestResults/
+/test-results.xml
+/bin/
 
 # Gradle cache directory
 .gradle/
