@@ -15,6 +15,8 @@ public class PlayerMovement : MonoBehaviour
     private float turnAcceleration = 50f;
     [SerializeField, Min(0.001f), Tooltip("이륙 지면 대비 점프 높이 (m)")]
     private float jumpHeight = 2f;
+    [SerializeField, Tooltip("발 위치가 이 월드 Y 높이보다 낮으면 탈락")]
+    private float fallDeathHeight = -10f;
     [SerializeField] private Transform groundCheckTransform;
     [SerializeField, Min(0.001f)] private float groundCheckRadius = 0.2f;
     [SerializeField] private LayerMask groundLayer;
@@ -34,6 +36,10 @@ public class PlayerMovement : MonoBehaviour
     private bool pendingJump;
     private bool jumpHeld;
     private bool jumpReadyAfterRelease;
+    private bool isEliminated;
+    private GUIStyle eliminationStyle;
+
+    public bool IsEliminated => isEliminated;
 
     private void Awake()
     {
@@ -76,13 +82,15 @@ public class PlayerMovement : MonoBehaviour
 
     public void OnMove(InputValue value)
     {
-        input = focused && !waitingForNeutral
+        input = isActiveAndEnabled && !isEliminated && focused && !waitingForNeutral
             ? Vector2.ClampMagnitude(value.Get<Vector2>(), 1f)
             : Vector2.zero;
     }
 
     public void OnJump(InputValue value)
     {
+        if (isEliminated)
+            return;
         bool pressed = value.isPressed;
         bool newPress = pressed && !jumpHeld;
         jumpHeld = pressed;
@@ -114,7 +122,7 @@ public class PlayerMovement : MonoBehaviour
 
     private void CheckForNeutralInput()
     {
-        if (!focused || playerInput == null || playerInput.actions == null)
+        if (isEliminated || !focused || playerInput == null || playerInput.actions == null)
             return;
         var jump = playerInput.actions.FindAction("Player/Jump");
         // SendMessages omits canceled callbacks for Button actions. Observe release here.
@@ -143,6 +151,18 @@ public class PlayerMovement : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (!isEliminated && FootPosition.y < fallDeathHeight)
+        {
+            isEliminated = true;
+            grounded = false;
+            supportingColliders.Clear();
+            ResetJumpInput();
+        }
+        if (isEliminated)
+        {
+            StopHorizontalMovement();
+            return;
+        }
         grounded = HasGroundSupport();
         bool launch = pendingJump;
         pendingJump = false;
@@ -184,7 +204,7 @@ public class PlayerMovement : MonoBehaviour
     private void RefreshSupport(Collision collision)
     {
         // Unity also delivers collision messages to disabled MonoBehaviours.
-        if (!isActiveAndEnabled || groundCheckTransform == null)
+        if (isEliminated || !isActiveAndEnabled || groundCheckTransform == null)
             return;
         supportingColliders.Remove(collision.collider);
         if ((groundLayer.value & (1 << collision.gameObject.layer)) == 0)
@@ -210,7 +230,7 @@ public class PlayerMovement : MonoBehaviour
 
     private bool HasGroundSupport()
     {
-        if (body.linearVelocity.y > 0.1f || supportingColliders.Count == 0)
+        if (isEliminated || body.linearVelocity.y > 0.1f || supportingColliders.Count == 0)
             return false;
         // Recheck current geometry: cached contacts alone must not grant coyote time.
         Vector3 foot = FootPosition;
@@ -241,16 +261,40 @@ public class PlayerMovement : MonoBehaviour
             && (groundLayer.value & (1 << gameObject.layer)) == 0
             && Positive(maxSpeed) && Positive(acceleration) && Positive(deceleration)
             && Positive(turnAcceleration) && Positive(groundCheckRadius) && Positive(jumpHeight)
+            && !float.IsNaN(fallDeathHeight) && !float.IsInfinity(fallDeathHeight)
             && body != null && !body.isKinematic
             && body.useGravity && body.linearDamping == 0f
             && (body.constraints & RigidbodyConstraints.FreezePositionY) == 0
             && Positive(-Physics.gravity.y) && Physics.gravity.x == 0f && Physics.gravity.z == 0f)
             return;
-        Debug.LogError("PlayerMovement: check PlayerInput/Move/Jump, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump values.", this);
+        Debug.LogError("PlayerMovement: check PlayerInput/Move/Jump, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump values plus a finite fall death height.", this);
         enabled = false;
     }
 
     private static bool Positive(float value) => value > 0f && !float.IsInfinity(value);
+
+    private void OnGUI()
+    {
+        if (!isEliminated)
+            return;
+        // shortcut: 로컬 1인 프로토타입 안내, 실제 HUD·다국어 도입 시 UI 체계로 이전.
+        if (eliminationStyle == null)
+            eliminationStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+        eliminationStyle.fontSize = Mathf.Clamp(Screen.width / 25, 18, 32);
+        float width = Mathf.Min(400f, Screen.width * 0.9f);
+        var panel = new Rect((Screen.width - width) * 0.5f, (Screen.height - 96f) * 0.5f, width, 96f);
+        Color previousColor = GUI.color;
+        GUI.color = new Color(0f, 0f, 0f, 0.95f);
+        GUI.DrawTexture(panel, Texture2D.whiteTexture);
+        GUI.color = Color.white;
+        GUI.Label(panel, "ELIMINATED", eliminationStyle);
+        GUI.color = previousColor;
+    }
 
     private void OnDrawGizmosSelected()
     {
