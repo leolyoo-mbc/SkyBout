@@ -22,7 +22,7 @@
 
 ## 2. 구현 후 임포트·씬 확인
 
-1. `Assets/Player_Actions.inputactions`의 importer에서 Generate C# Class 활성, 클래스 PlayerActions, 출력 `Assets/Scripts/Input/PlayerActions.cs`, namespace 없음인지 확인하고 Apply/Reimport한다.
+1. `Assets/Scripts/Input` 폴더가 없으면 먼저 생성하고, `Assets/Player_Actions.inputactions`의 importer에서 Generate C# Class 활성, 클래스 PlayerActions, 출력 `Assets/Scripts/Input/PlayerActions.cs`, namespace 없음인지 확인하고 Apply/Reimport한다.
 2. 생성 파일이 SkyBout.Runtime에서 컴파일되고 Console 오류가 없는지 확인한다. 생성 파일을 수동 수정하지 않는다.
 3. SampleScene Player에 PlayerInput이 **없고**, PlayerMovement/Rigidbody/Collider/GroundCheck/카메라 참조가 유지되는지 확인한다. Missing Script와 누락 참조가 없어야 한다.
 4. 생성 인스턴스와 원본 자산의 이름·ID·타입·바인딩·스킴·initialStateCheck 일치 시험을 실행한다. 불일치 음성 사례가 거부되는지도 확인한다.
@@ -34,13 +34,14 @@ Set-Location 'D:\Projects\SkyBout'
 git diff --check
 git status --short
 Get-ChildItem 'Assets\Scripts' -Recurse -Filter '*.cs' |
+  Where-Object { $_.FullName -notlike '*\Scripts\Input\PlayerActions.cs' } |
   Select-String -Pattern '\bPlayerInput\b|\bInputValue\b|PlayerNotifications|FindAction\('
 Get-ChildItem 'Assets\Tests\PlayMode' -Filter '*.cs' |
   Select-String -Pattern 'AddComponent<PlayerInput>|GetComponent<PlayerInput>|PlayerNotifications|SwitchCurrentControlScheme|ActivateInput|DeactivateInput'
 Select-String -Path 'Assets\Scenes\SampleScene.unity' -Pattern 'UnityEngine.InputSystem.PlayerInput|2083166631'
 ```
 
-런타임 검색은 0건, 이전 테스트 구성 호출과 씬 컴포넌트/참조도 0건이 기대값이다. PlayerInput 부재를 검증하는 테스트 자체의 타입 참조는 허용한다. 테스트의 물리/초점 호출용 SendMessage는 제거 대상이 아니다. 신규 생성 파일·폴더 meta와 원본 GUID 보존도 확인한다.
+런타임 검색은 0건, 이전 테스트 구성 호출과 씬 컴포넌트/참조도 0건이 기대값이다. 단, 생성 산출물 `Assets/Scripts/Input/PlayerActions.cs`는 `FindAction`을 포함하므로 수기 런타임 검색에서 제외한다. PlayerInput 부재를 검증하는 테스트 자체의 타입 참조는 허용한다. 테스트의 물리/초점 호출용 SendMessage는 제거 대상이 아니다. 신규 생성 파일·폴더 meta와 원본 GUID 보존도 확인한다.
 
 ## 3. 자동 PlayMode 회귀
 
