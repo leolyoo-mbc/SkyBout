@@ -16,8 +16,7 @@ public class FallEliminationTests
     private GameObject ground;
     private Rigidbody body;
     private PlayerMovement movement;
-    private PlayerInput playerInput;
-    private InputActionAsset actions;
+    private PlayerInputActions actions;
     private Keyboard keyboard;
     private Mouse mouse;
     private SimulationMode previousSimulation;
@@ -49,10 +48,6 @@ public class FallEliminationTests
         InputSystem.settings.updateMode = InputSettings.UpdateMode.ProcessEventsManually;
         keyboard = InputSystem.AddDevice<Keyboard>();
         mouse = InputSystem.AddDevice<Mouse>();
-#if UNITY_EDITOR
-        actions = Object.Instantiate(AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Player_Actions.inputactions"));
-#endif
-        Assert.That(actions, Is.Not.Null);
         ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
         ground.layer = LayerMask.NameToLayer("Ground");
         ground.transform.position = start + Vector3.down * 2f;
@@ -80,15 +75,9 @@ public class FallEliminationTests
         movement = player.AddComponent<PlayerMovement>();
         SetField("groundCheckTransform", foot);
         SetField("groundLayer", (LayerMask)(1 << ground.layer));
-        playerInput = player.AddComponent<PlayerInput>();
-        playerInput.actions = actions;
-        playerInput.defaultActionMap = "Player";
-        playerInput.notificationBehavior = PlayerNotifications.SendMessages;
-        playerInput.neverAutoSwitchControlSchemes = true;
         player.SetActive(true);
-        playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
-        playerInput.ActivateInput();
-        playerInput.SwitchCurrentActionMap("Player");
+        actions = (PlayerInputActions)Field("actions").GetValue(movement);
+        actions.devices = new InputDevice[] { keyboard, mouse };
         movement.SendMessage("OnApplicationFocus", true);
         Physics.SyncTransforms();
         Press();
@@ -100,7 +89,6 @@ public class FallEliminationTests
     {
         Object.DestroyImmediate(player);
         Object.DestroyImmediate(ground);
-        Object.DestroyImmediate(actions);
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
         if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
         Physics.simulationMode = previousSimulation;
@@ -315,7 +303,7 @@ public class FallEliminationTests
     public IEnumerator SampleSceneTenNaturalFallsShowOverlayAndReloadAlive()
     {
 #if UNITY_EDITOR
-        playerInput.DeactivateInput();
+        actions.Player.Disable();
         movement.enabled = false;
         Physics.simulationMode = SimulationMode.FixedUpdate;
         InputSystem.settings.updateMode = InputSettings.UpdateMode.ProcessEventsInDynamicUpdate;
@@ -337,16 +325,15 @@ public class FallEliminationTests
             Assert.That(actual, Is.Not.Null);
             Assert.That(camera, Is.Not.Null);
             var actualBody = actual.GetComponent<Rigidbody>();
-            var actualInput = actual.GetComponent<PlayerInput>();
-            actualInput.neverAutoSwitchControlSchemes = true;
-            actualInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
+            var actualInput = (PlayerInputActions)Field("actions").GetValue(actual);
+            actualInput.devices = new InputDevice[] { keyboard, mouse };
             actual.SendMessage("OnApplicationFocus", true);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
             Assert.That(actual.IsEliminated, Is.False, "Every reload must create a living player.");
             Assert.That(Vector3.Distance(actualBody.position, new Vector3(0f, 1f, 0f)), Is.LessThan(0.03f));
             Assert.That((float)Field("fallDeathHeight").GetValue(actual), Is.EqualTo(-10f));
-            Assert.That((bool)Field("grounded").GetValue(actual), Is.True);
+            Assert.That(Field("state").GetValue(actual).ToString(), Is.EqualTo("Grounded"));
             var target = typeof(TopDownCameraFollow).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(target.GetValue(camera.GetComponent<TopDownCameraFollow>()), Is.EqualTo(actual.transform));
             if (sample == 10)
@@ -431,7 +418,7 @@ public class FallEliminationTests
         Assert.Fail("Player must return to real island support.");
     }
 
-    private bool Grounded() => (bool)Field("grounded").GetValue(movement);
+    private bool Grounded() => Field("state").GetValue(movement).ToString() == "Grounded";
     private FieldInfo Field(string name)
     {
         var field = typeof(PlayerMovement).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);

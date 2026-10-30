@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-2026-10-30: **설계만 완료**. 이번 단계에서 코드·씬·입력 자산은 수정하지 않았으며 컴파일·PlayMode·수동 시험은 실행하지 않았다. 아래는 구현 시 사용할 절차다. 과거 004의 66/66 통과 기록은 이번 실행 결과가 아니다.
+2026-10-30: **구현 및 자동 회귀 완료, 사람의 수동 검수 대기**. Unity 6000.3.26f1에서 기준선 66개(65 통과·1 실패), 변경 후 71개 전부 통과(115.98초). 기존 66개 시험 이름을 유지했고 기준선 통과 65개에 새 실패는 없다. 생성 클래스명은 맵 래퍼 `PlayerActions`와의 이름 충돌을 피해 `PlayerInputActions`로 변경했다. 작은 Game 뷰 한글 가독성·실제 조작감은 미검증이며 통과로 합산하지 않는다.
 
 계약: [contracts/player-input.md](contracts/player-input.md). 상태와 적용 순서: [data-model.md](data-model.md). 요구사항과 반복 횟수: [spec.md](spec.md)의 SC-001~007.
 
@@ -22,7 +22,7 @@
 
 ## 2. 구현 후 임포트·씬 확인
 
-1. `Assets/Scripts/Input` 폴더가 없으면 먼저 생성하고, `Assets/Player_Actions.inputactions`의 importer에서 Generate C# Class 활성, 클래스 PlayerActions, 출력 `Assets/Scripts/Input/PlayerActions.cs`, namespace 없음인지 확인하고 Apply/Reimport한다.
+1. `Assets/Scripts/Input` 폴더가 없으면 먼저 생성하고, `Assets/Player_Actions.inputactions`의 importer에서 Generate C# Class 활성, 클래스 PlayerInputActions, 출력 `Assets/Scripts/Input/PlayerInputActions.cs`, namespace 없음인지 확인하고 Apply/Reimport한다.
 2. 생성 파일이 SkyBout.Runtime에서 컴파일되고 Console 오류가 없는지 확인한다. 생성 파일을 수동 수정하지 않는다.
 3. SampleScene Player에 PlayerInput이 **없고**, PlayerMovement/Rigidbody/Collider/GroundCheck/카메라 참조가 유지되는지 확인한다. Missing Script와 누락 참조가 없어야 한다.
 4. 생성 인스턴스와 원본 자산의 이름·ID·타입·바인딩·스킴·initialStateCheck 일치 시험을 실행한다. 불일치 음성 사례가 거부되는지도 확인한다.
@@ -34,14 +34,14 @@ Set-Location 'D:\Projects\SkyBout'
 git diff --check
 git status --short
 Get-ChildItem 'Assets\Scripts' -Recurse -Filter '*.cs' |
-  Where-Object { $_.FullName -notlike '*\Scripts\Input\PlayerActions.cs' } |
+  Where-Object { $_.FullName -notlike '*\Scripts\Input\PlayerInputActions.cs' } |
   Select-String -Pattern '\bPlayerInput\b|\bInputValue\b|PlayerNotifications|FindAction\('
 Get-ChildItem 'Assets\Tests\PlayMode' -Filter '*.cs' |
   Select-String -Pattern 'AddComponent<PlayerInput>|GetComponent<PlayerInput>|PlayerNotifications|SwitchCurrentControlScheme|ActivateInput|DeactivateInput'
 Select-String -Path 'Assets\Scenes\SampleScene.unity' -Pattern 'UnityEngine.InputSystem.PlayerInput|2083166631'
 ```
 
-런타임 검색은 0건, 이전 테스트 구성 호출과 씬 컴포넌트/참조도 0건이 기대값이다. 단, 생성 산출물 `Assets/Scripts/Input/PlayerActions.cs`는 `FindAction`을 포함하므로 수기 런타임 검색에서 제외한다. PlayerInput 부재를 검증하는 테스트 자체의 타입 참조는 허용한다. 테스트의 물리/초점 호출용 SendMessage는 제거 대상이 아니다. 신규 생성 파일·폴더 meta와 원본 GUID 보존도 확인한다.
+런타임 검색은 0건, 이전 테스트 구성 호출과 씬 컴포넌트/참조도 0건이 기대값이다. 단, 생성 산출물 `Assets/Scripts/Input/PlayerInputActions.cs`는 `FindAction`을 포함하므로 수기 런타임 검색에서 제외한다. PlayerInput 부재를 검증하는 테스트 자체의 타입 참조는 허용한다. 테스트의 물리/초점 호출용 SendMessage는 제거 대상이 아니다. 신규 생성 파일·폴더 meta와 원본 GUID 보존도 확인한다.
 
 ## 3. 자동 PlayMode 회귀
 
@@ -83,16 +83,18 @@ XML에서 시험이 실제 수집되고 실행되었는지 확인한다. 프로�
 
 | 구분 | 이번 실행 상태 | 남길 근거 |
 | --- | --- | --- |
-| 변경 전 전체 기준선 | 미실행 | 시각/버전/시험 수/XML·로그/기존 실패 |
-| 생성 자산 계약·음성 사례·컴파일 | 미실행 | 원본 비교 결과/컴파일 로그 |
-| PlayerInput 완전 제거·기존 설정 보존 | 미실행 | 정적 검색/씬 diff/설정·GUID 대조 |
-| SC-001 이동·점프·카메라 | 미실행 | 8방향/점프 표본·높이/기존 시험 |
-| SC-002 낙사 경계·조작 차단 | 미실행 | 경계 각 5회/10초 차단 5회 |
-| SC-003 동일 실행 20회·안내/복귀 시간 | 미실행 | 20회 기록/첫 복귀 렌더 증거 |
-| SC-004 복귀 안정·유지 입력 | 미실행 | 무입력 10회/유지 입력 5회 |
-| SC-005 오재시작·충돌 방지 | 미실행 | 사례별 5회 |
-| SC-006 초점·재활성화 단일 처리 | 미실행 | 상태별 5회/활성화 전환 20회 |
-| SC-007 기존 기준 보존·빠른 입력·반대 키 | 미실행 | 기준선 대조/사례별 5회/미검증 목록 |
-| 사람의 작은 Game 뷰 가독성·조작감 | 미실행 | 뷰 크기/검수자 확인/20회 조작 기록 |
+| 변경 전 전체 기준선 | 65/66 통과, 초점 시험 1 실패 | `TestResults/005-baseline.json`, `005-baseline.log`, `005-baseline-contract.md` |
+| 생성 자산 계약·음성 사례·컴파일 | 통과 | `005-after.json`: 원본 일치·이름 변경·바인딩 변경/누락·필수 액션 누락; 생성기 출력 일치 |
+| PlayerInput 완전 제거·기존 설정 보존 | 통과 | `005-static-verification.txt`: 검색 0건, 씬은 해당 컴포넌트/참조 삭제 외 동일, 원본 입력 JSON·slnx 보존 |
+| SC-001 이동·점프·카메라 | 자동 통과 | `005-after.json`: MovementAndCameraTests 7개, JumpTests 30개; 사람 조작감은 별도 |
+| SC-002 낙사 경계·조작 차단 | 자동 통과 | `005-after.json`: FallEliminationTests, RestartTests 경계·10초 차단 반복 |
+| SC-003 동일 실행 20회·안내/복귀 시간 | 자동·렌더 통과 | `restart-timings.txt`, `restart-overlay-{0,9}.png`, `restart-restored-{0,9}.png`; 매회 첫 복귀 렌더 패널 부재 단언 |
+| SC-004 복귀 안정·유지 입력 | 자동 통과 | `005-after.json`: 무입력 2초 10회, 유지 WASD/Space 5회 |
+| SC-005 오재시작·충돌 방지 | 자동 통과 | `005-after.json`: RestartTests 각 5회 |
+| SC-006 초점·재활성화 단일 처리 | 자동 통과 | 생존·공중 초점/disable 5회, 탈락 기존 5회, 신규 Space/R 재활성화 각각 20회 |
+| SC-007 기존 기준 보존·빠른 입력·반대 키 | 자동 통과·사람 검수 미완료 | `005-after.log`, `005-verification.md`: 기존 66개 유지, 새 실패 0, 짧은 Space/R·반대 키 각 5회 |
+| 사람의 작은 Game 뷰 가독성·조작감 | 미검증 | `005-manual.md`: 실제 검수자 확인 필요; 자동 픽셀 검사를 사람 검수로 대체하지 않음 |
+
+증거 경로는 저장소 루트 `TestResults/` 기준이다(gitignore). `005-after.json`이 Unity 도구의 원본 결과이며 `005-after.xml`은 JSON을 변환한 보조 파일이지 Test Runner의 네이티브 XML 내보내기가 아니다. 전체 회귀 중 Editor 초점에 따른 가상 장치 차단이 드러나 Jump/Movement fixture에도 테스트 전용 IgnoreFocus·GameView 입력 설정과 teardown 복원을 명시했다. 런타임 초점 정책이나 물리·시간 임계값은 변경하지 않았다.
 
 004의 T015/T017/T018은 이번 설계에서 완료 표시하지 않는다. 동일 사항을 실제로 검증하면 이번 증거에 연결하고, 과거 완료 기록을 소급해서 바꾸지 않는다. 최종 판정은 적용 가능한 기존 인수 기준과 이번 SC-001~007을 만족하는지로 하며 미검증을 성공으로 합산하지 않는다.

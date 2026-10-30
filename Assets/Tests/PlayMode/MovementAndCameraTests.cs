@@ -17,12 +17,15 @@ public class MovementAndCameraTests
     private GameObject cameraObject;
     private Rigidbody body;
     private PlayerMovement movement;
-    private PlayerInput playerInput;
-    private InputActionAsset actions;
+    private PlayerInputActions actions;
     private Keyboard keyboard;
     private Mouse mouse;
     private SimulationMode previousSimulation;
     private InputSettings.UpdateMode previousInputMode;
+    private InputSettings.BackgroundBehavior previousBackground;
+#if UNITY_EDITOR
+    private InputSettings.EditorInputBehaviorInPlayMode previousEditorInput;
+#endif
     private Scene previousScene;
     private Scene testScene;
     private readonly Vector3 start = new Vector3(200f, 1f, 200f);
@@ -35,6 +38,12 @@ public class MovementAndCameraTests
         SceneManager.SetActiveScene(testScene);
         previousSimulation = Physics.simulationMode;
         previousInputMode = InputSystem.settings.updateMode;
+        previousBackground = InputSystem.settings.backgroundBehavior;
+        InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+        previousEditorInput = InputSystem.settings.editorInputBehaviorInPlayMode;
+        InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
         Physics.simulationMode = SimulationMode.Script;
         InputSystem.settings.updateMode = InputSettings.UpdateMode.ProcessEventsManually;
         keyboard = InputSystem.AddDevice<Keyboard>();
@@ -57,24 +66,17 @@ public class MovementAndCameraTests
         capsule.radius = 0.5f;
 #if UNITY_EDITOR
         capsule.sharedMaterial = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>("Assets/PlayerFriction.physicMaterial");
-        actions = Object.Instantiate(AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Player_Actions.inputactions"));
 #endif
-        Assert.That(actions, Is.Not.Null, "The actual scene input asset must be available in the Editor.");
         var foot = new GameObject("GroundCheck").transform;
         foot.SetParent(player.transform, false);
         foot.localPosition = Vector3.down;
         movement = player.AddComponent<PlayerMovement>();
         SetField(movement, "groundCheckTransform", foot);
         SetField(movement, "groundLayer", (LayerMask)(1 << ground.layer));
-        playerInput = player.AddComponent<PlayerInput>();
-        playerInput.actions = actions;
-        playerInput.defaultActionMap = "Player";
-        playerInput.notificationBehavior = PlayerNotifications.SendMessages;
-        playerInput.neverAutoSwitchControlSchemes = true;
         player.SetActive(true);
-        playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
-        playerInput.ActivateInput();
-        playerInput.SwitchCurrentActionMap("Player");
+        actions = (PlayerInputActions)typeof(PlayerMovement).GetField("actions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(movement);
+        actions.devices = new InputDevice[] { keyboard, mouse };
+        Assert.That(actions.bindingMask, Is.EqualTo(InputBinding.MaskByGroup("Keyboard&Mouse")));
         movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);
         Physics.SyncTransforms();
         Press();
@@ -87,11 +89,14 @@ public class MovementAndCameraTests
         Object.DestroyImmediate(cameraObject);
         Object.DestroyImmediate(player);
         Object.DestroyImmediate(ground);
-        Object.DestroyImmediate(actions);
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
         if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
         Physics.simulationMode = previousSimulation;
         InputSystem.settings.updateMode = previousInputMode;
+        InputSystem.settings.backgroundBehavior = previousBackground;
+#if UNITY_EDITOR
+        InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorInput;
+#endif
         if (previousScene.IsValid() && previousScene.isLoaded)
             SceneManager.SetActiveScene(previousScene);
         if (testScene.IsValid() && testScene.isLoaded)
@@ -147,27 +152,40 @@ public class MovementAndCameraTests
     [Test]
     public void FocusRegainRequiresReleasingKeysBeforeMoving()
     {
-        Press(Key.W);
-        Step(60);
-        movement.SendMessage("OnApplicationFocus", false, SendMessageOptions.DontRequireReceiver);
-        Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
-        movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);
-        InputSystem.Update();
-        Step(10);
-        Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
-        Press();
-        Press(Key.W);
-        Step();
-        Assert.That(body.linearVelocity.z, Is.GreaterThan(0f));
-        movement.SendMessage("OnApplicationFocus", false, SendMessageOptions.DontRequireReceiver);
-        Press();
-        movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);
-        InputSystem.Update();
-        Step();
-        Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
-        Press(Key.W);
-        Step();
-        Assert.That(body.linearVelocity.z, Is.GreaterThan(0f));
+        for (int sample = 0; sample < 5; sample++)
+        {
+            ResetPlayer();
+            Press(Key.W);
+            Step(60);
+            movement.SendMessage("OnApplicationFocus", false, SendMessageOptions.DontRequireReceiver);
+            Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
+            movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);
+            InputSystem.Update();
+            Step(10);
+            Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
+            Press();
+            Press(Key.W);
+            Step();
+            Assert.That(body.linearVelocity.z, Is.GreaterThan(0f));
+            movement.SendMessage("OnApplicationFocus", false, SendMessageOptions.DontRequireReceiver);
+            Press();
+            movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);
+            InputSystem.Update();
+            Step();
+            Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
+            Press(Key.W);
+            Step();
+            Assert.That(body.linearVelocity.z, Is.GreaterThan(0f));
+
+            movement.enabled = false;
+            Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
+            movement.enabled = true;
+            movement.SendMessage("OnApplicationFocus", true);
+            InputSystem.Update(); Step(10);
+            Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
+            Press(); Press(Key.W); Step();
+            Assert.That(body.linearVelocity.z, Is.GreaterThan(0f));
+        }
     }
 
     [Test]
@@ -297,9 +315,9 @@ public class MovementAndCameraTests
         if (keys.Length == 1 && keys[0] != Key.Space)
         {
             Assert.That(keyboard[keys[0]].isPressed, Is.True, "The virtual keyboard event must be processed.");
-            var move = playerInput.actions["Move"];
+            var move = actions.Player.Move;
             Assert.That(move.ReadValue<Vector2>().sqrMagnitude, Is.GreaterThan(0f),
-                $"Move enabled={move.enabled}, controls={move.controls.Count}, devices={playerInput.devices.Count}, active={playerInput.inputIsActive}, scheme={playerInput.currentControlScheme}");
+                $"Move enabled={move.enabled}, controls={move.controls.Count}, devices={actions.devices.Value.Count}");
         }
     }
 

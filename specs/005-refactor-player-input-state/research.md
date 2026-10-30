@@ -15,7 +15,7 @@
 
 ## 1. 생성 클래스는 기존 런타임 어셈블리 안에 배치
 
-**Decision**: 기존 `Player_Actions.inputactions`의 Generate C# Class를 활성화하고 클래스 이름은 `PlayerActions`, 경로는 `Assets/Scripts/Input/PlayerActions.cs`, namespace는 비워 둔다. 생성 파일과 Unity `.meta`를 버전 관리한다. 액션 자산 GUID, 맵·액션·바인딩 ID, 이름·타입·initialStateCheck와 제어 스킴은 유지한다.
+**Decision**: 기존 `Player_Actions.inputactions`의 Generate C# Class를 활성화하고 클래스 이름은 `PlayerInputActions`, 경로는 `Assets/Scripts/Input/PlayerInputActions.cs`, namespace는 비워 둔다. 클래스명은 생성기가 만드는 맵 래퍼 구조체 `PlayerActions`와 충돌하지 않도록 `PlayerInputActions`로 정한다. 생성 파일과 Unity `.meta`를 버전 관리한다. 액션 자산 GUID, 맵·액션·바인딩 ID, 이름·타입·initialStateCheck와 제어 스킴은 유지한다.
 
 **Rationale**: 생성기는 액션 JSON을 포함하는 생성자, typed accessor, bindingMask, devices, Dispose를 제공한다. 자산 옆인 Assets 루트에 생성하면 Assembly-CSharp에 들어가 SkyBout.Runtime에서 참조할 수 없다. Scripts 아래면 기존 asmdef와 Unity.InputSystem 참조를 그대로 사용한다.
 
@@ -23,7 +23,7 @@
 
 ## 2. PlayerInput 완전 제거와 직접 이벤트 구독
 
-**Decision**: PlayerMovement가 Awake에서 `new PlayerActions()`를 생성한다. OnEnable에서 Move의 performed/canceled, Jump와 Restart의 performed/canceled 및 필요한 onAfterUpdate 관찰을 구독하고 Player 맵을 활성화한다. OnDisable에서는 먼저 구독을 해제하고 맵을 비활성화한 뒤 요청·입력을 정리한다. OnDestroy에서 Dispose한다. 생성 실패·설정 검증 실패 경로에서도 부분 초기화에 안전한 해제가 필요하다.
+**Decision**: PlayerMovement가 Awake에서 `new PlayerInputActions()`를 생성한다. OnEnable에서 Move의 performed/canceled, Jump와 Restart의 performed/canceled 및 필요한 onAfterUpdate 관찰을 구독하고 Player 맵을 활성화한다. OnDisable에서는 먼저 구독을 해제하고 맵을 비활성화한 뒤 요청·입력을 정리한다. OnDestroy에서 Dispose한다. 생성 실패·설정 검증 실패 경로에서도 부분 초기화에 안전한 해제가 필요하다.
 
 **Rationale**: PlayerInput 컴포넌트, 필드·GetComponent, InputValue 콜백과 문자열 FindAction을 제거할 수 있다. 구독 해제 후 Disable하면 Disable로 발생하는 canceled가 키 해제나 새 요청으로 오인되지 않는다. 같은 인스턴스를 재활성화하며 중복 구독을 막는다.
 

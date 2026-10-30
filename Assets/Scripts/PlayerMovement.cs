@@ -27,16 +27,17 @@ public class PlayerMovement : MonoBehaviour
     private const float MinSupportNormal = 0.7f;
     private bool reportedContactOverflow;
 
+    private enum PlayerState { Grounded, Airborne, Eliminated }
+
     private Rigidbody body;
-    private PlayerInput playerInput;
+    private PlayerInputActions actions;
     private Vector2 input;
-    private bool grounded;
+    private PlayerState state = PlayerState.Airborne;
     private bool focused;
     private bool waitingForNeutral;
     private bool pendingJump;
     private bool jumpHeld;
     private bool jumpReadyAfterRelease;
-    private bool isEliminated;
     private GUIStyle eliminationStyle;
     [SerializeField] private TopDownCameraFollow cameraFollow;
     private Vector3 startPosition;
@@ -45,12 +46,13 @@ public class PlayerMovement : MonoBehaviour
     private bool restartHeld;
     private bool restartReadyAfterRelease;
 
-    public bool IsEliminated => isEliminated;
+    public bool IsEliminated => state == PlayerState.Eliminated;
 
     private void Awake()
     {
         body = GetComponent<Rigidbody>();
-        playerInput = GetComponent<PlayerInput>();
+        actions = new PlayerInputActions();
+        actions.bindingMask = InputBinding.MaskByGroup("Keyboard&Mouse");
         startPosition = body.position;
         startRotation = body.rotation;
         ValidateSettings();
@@ -65,63 +67,104 @@ public class PlayerMovement : MonoBehaviour
         ResetRestartInput();
         if (body != null && !body.isKinematic)
             body.WakeUp(); // Rebuild support callbacks after re-enabling a sleeping player.
-        InputSystem.onAfterUpdate += CheckForNeutralInput;
-    }
-
-    private void Start()
-    {
-        if (playerInput == null || playerInput.actions == null
-            || playerInput.actions.FindAction("Player/Move") == null
-            || playerInput.actions.FindAction("Player/Jump") == null
-            || playerInput.actions.FindAction("Player/Restart") == null)
-        {
-            Debug.LogError("PlayerMovement: PlayerInput must provide Player/Move, Player/Jump and Player/Restart.", this);
-            enabled = false;
-        }
+        if (actions == null)
+            return;
+        actions.bindingMask = InputBinding.MaskByGroup("Keyboard&Mouse");
+        SubscribeInput();
+        actions.Player.Enable();
     }
 
     private void OnDisable()
     {
-        InputSystem.onAfterUpdate -= CheckForNeutralInput;
+        UnsubscribeInput();
+        if (actions != null)
+            actions.Player.Disable();
         waitingForNeutral = true;
         supportingColliders.Clear();
-        grounded = false;
+        if (state != PlayerState.Eliminated)
+            state = PlayerState.Airborne;
         ResetJumpInput();
         ResetRestartInput();
         StopHorizontalMovement();
     }
 
-    public void OnMove(InputValue value)
+    private void OnDestroy()
     {
-        input = isActiveAndEnabled && !isEliminated && focused && !waitingForNeutral
-            ? Vector2.ClampMagnitude(value.Get<Vector2>(), 1f)
+        UnsubscribeInput();
+        if (actions != null)
+        {
+            actions.Disable();
+            actions.Dispose();
+            actions = null;
+        }
+    }
+
+    private void SubscribeInput()
+    {
+        if (actions == null)
+            return;
+        actions.Player.Move.performed += OnMovePerformed;
+        actions.Player.Move.canceled += OnMoveCanceled;
+        actions.Player.Jump.performed += OnJumpPerformed;
+        actions.Player.Jump.canceled += OnJumpCanceled;
+        actions.Player.Restart.performed += OnRestartPerformed;
+        actions.Player.Restart.canceled += OnRestartCanceled;
+        InputSystem.onAfterUpdate += CheckForNeutralInput;
+    }
+
+    private void UnsubscribeInput()
+    {
+        if (actions != null)
+        {
+            actions.Player.Move.performed -= OnMovePerformed;
+            actions.Player.Move.canceled -= OnMoveCanceled;
+            actions.Player.Jump.performed -= OnJumpPerformed;
+            actions.Player.Jump.canceled -= OnJumpCanceled;
+            actions.Player.Restart.performed -= OnRestartPerformed;
+            actions.Player.Restart.canceled -= OnRestartCanceled;
+        }
+        InputSystem.onAfterUpdate -= CheckForNeutralInput;
+    }
+
+    private void OnMovePerformed(InputAction.CallbackContext context)
+    {
+        input = isActiveAndEnabled && state != PlayerState.Eliminated && focused && !waitingForNeutral
+            ? Vector2.ClampMagnitude(context.ReadValue<Vector2>(), 1f)
             : Vector2.zero;
     }
 
-    public void OnJump(InputValue value)
+    private void OnMoveCanceled(InputAction.CallbackContext context)
     {
-        if (isEliminated)
+        input = Vector2.zero;
+    }
+
+    private void OnJumpPerformed(InputAction.CallbackContext context) => HandleJump(true);
+
+    private void OnJumpCanceled(InputAction.CallbackContext context) => HandleJump(false);
+
+    private void HandleJump(bool pressed)
+    {
+        if (state == PlayerState.Eliminated)
             return;
-        bool pressed = value.isPressed;
         bool newPress = pressed && !jumpHeld;
         jumpHeld = pressed;
         if (!isActiveAndEnabled || !focused)
             return;
         if (!pressed)
-        {
-            jumpReadyAfterRelease = true;
             return;
-        }
         if (newPress && jumpReadyAfterRelease && HasGroundSupport())
             pendingJump = true;
     }
 
-    public void OnRestart(InputValue value)
+    private void OnRestartPerformed(InputAction.CallbackContext context) => HandleRestart(true);
+
+    private void OnRestartCanceled(InputAction.CallbackContext context) => HandleRestart(false);
+
+    private void HandleRestart(bool pressed)
     {
-        bool pressed = value.isPressed;
         bool newPress = pressed && !restartHeld;
         restartHeld = pressed;
-        if (newPress && restartReadyAfterRelease && isActiveAndEnabled && focused && isEliminated)
+        if (newPress && restartReadyAfterRelease && isActiveAndEnabled && focused && state == PlayerState.Eliminated)
         {
             pendingRestart = true;
             restartReadyAfterRelease = false;
@@ -144,11 +187,10 @@ public class PlayerMovement : MonoBehaviour
         body.linearVelocity = Vector3.zero;
         body.angularVelocity = Vector3.zero;
         supportingColliders.Clear();
-        grounded = false;
+        state = PlayerState.Airborne;
         ResetJumpInput();
-        isEliminated = false;
         waitingForNeutral = false;
-        input = Vector2.ClampMagnitude(playerInput.actions.FindAction("Player/Move").ReadValue<Vector2>(), 1f);
+        input = Vector2.ClampMagnitude(actions.Player.Move.ReadValue<Vector2>(), 1f);
         body.WakeUp();
         if (cameraFollow != null)
             cameraFollow.SnapToTarget();
@@ -172,10 +214,10 @@ public class PlayerMovement : MonoBehaviour
 
     private void CheckForNeutralInput()
     {
-        if (!focused || playerInput == null || playerInput.actions == null)
+        if (!focused || actions == null)
             return;
-        var restart = playerInput.actions.FindAction("Player/Restart");
-        if (restart != null && restart.enabled)
+        var restart = actions.Player.Restart;
+        if (restart.enabled)
         {
             bool actuated = false;
             foreach (var control in restart.controls)
@@ -186,11 +228,11 @@ public class PlayerMovement : MonoBehaviour
                 restartReadyAfterRelease = true;
             }
         }
-        if (isEliminated)
+        if (state == PlayerState.Eliminated)
             return;
-        var jump = playerInput.actions.FindAction("Player/Jump");
-        // SendMessages omits canceled callbacks for Button actions. Observe release here.
-        if (jump != null && jump.enabled)
+        var jump = actions.Player.Jump;
+        // Button release is observed here as well, independent of callback delivery.
+        if (jump.enabled)
         {
             bool actuated = false;
             foreach (var control in jump.controls)
@@ -203,8 +245,8 @@ public class PlayerMovement : MonoBehaviour
         }
         if (!waitingForNeutral)
             return;
-        var move = playerInput.actions.FindAction("Player/Move");
-        if (move == null || !move.enabled)
+        var move = actions.Player.Move;
+        if (!move.enabled)
             return;
         // Check after device synchronization, including opposing keys whose vector cancels out.
         foreach (var control in move.controls)
@@ -215,32 +257,36 @@ public class PlayerMovement : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (!isEliminated && FootPosition.y < fallDeathHeight)
+        if (state != PlayerState.Eliminated && FootPosition.y < fallDeathHeight)
         {
-            isEliminated = true;
+            state = PlayerState.Eliminated;
             pendingRestart = false;
-            grounded = false;
             supportingColliders.Clear();
             ResetJumpInput();
-        }
-        if (isEliminated)
-        {
-            if (pendingRestart && focused)
-                Restart();
-            else
-                StopHorizontalMovement();
+            StopHorizontalMovement();
             return;
         }
-        grounded = HasGroundSupport();
+        switch ((state, pendingRestart, focused))
+        {
+            case (PlayerState.Eliminated, true, true):
+                Restart();
+                return;
+            case (PlayerState.Eliminated, _, _):
+                StopHorizontalMovement();
+                return;
+        }
+        state = HasGroundSupport() ? PlayerState.Grounded : PlayerState.Airborne;
         bool launch = pendingJump;
         pendingJump = false;
-        if (focused && launch && grounded)
+        switch ((state, launch, focused))
         {
-            // Compensate the half-step loss of semi-implicit gravity integration.
-            float gravity = -Physics.gravity.y;
-            float speed = Mathf.Sqrt(2f * gravity * jumpHeight) + gravity * Time.fixedDeltaTime * 0.5f;
-            body.linearVelocity = new Vector3(body.linearVelocity.x, speed, body.linearVelocity.z);
-            grounded = false;
+            case (PlayerState.Grounded, true, true):
+                // Compensate the half-step loss of semi-implicit gravity integration.
+                float gravity = -Physics.gravity.y;
+                float speed = Mathf.Sqrt(2f * gravity * jumpHeight) + gravity * Time.fixedDeltaTime * 0.5f;
+                body.linearVelocity = new Vector3(body.linearVelocity.x, speed, body.linearVelocity.z);
+                state = PlayerState.Airborne;
+                break;
         }
         if (!focused || waitingForNeutral)
         {
@@ -251,13 +297,14 @@ public class PlayerMovement : MonoBehaviour
         Vector3 current = new Vector3(body.linearVelocity.x, 0f, body.linearVelocity.z);
         Vector3 direction = new Vector3(input.x, 0f, input.y);
         Vector3 target = direction * maxSpeed;
-        float rate;
-        if (direction.sqrMagnitude < 0.0001f)
-            rate = deceleration;
-        else if (current.sqrMagnitude > 0.0001f && Vector3.Dot(current.normalized, direction.normalized) < 0.95f)
-            rate = turnAcceleration;
-        else
-            rate = current.magnitude > target.magnitude ? deceleration : acceleration;
+        float rate = direction switch
+        {
+            var value when value.sqrMagnitude < 0.0001f => deceleration,
+            var value when current.sqrMagnitude > 0.0001f
+                && Vector3.Dot(current.normalized, value.normalized) < 0.95f => turnAcceleration,
+            _ when current.magnitude > target.magnitude => deceleration,
+            _ => acceleration
+        };
         Vector3 next = Vector3.MoveTowards(current, target, rate * Time.fixedDeltaTime);
         body.linearVelocity = new Vector3(next.x, body.linearVelocity.y, next.z);
     }
@@ -272,7 +319,7 @@ public class PlayerMovement : MonoBehaviour
     private void RefreshSupport(Collision collision)
     {
         // Unity also delivers collision messages to disabled MonoBehaviours.
-        if (isEliminated || !isActiveAndEnabled || groundCheckTransform == null)
+        if (state == PlayerState.Eliminated || !isActiveAndEnabled || groundCheckTransform == null)
             return;
         supportingColliders.Remove(collision.collider);
         if ((groundLayer.value & (1 << collision.gameObject.layer)) == 0)
@@ -298,7 +345,7 @@ public class PlayerMovement : MonoBehaviour
 
     private bool HasGroundSupport()
     {
-        if (isEliminated || body.linearVelocity.y > 0.1f || supportingColliders.Count == 0)
+        if (state == PlayerState.Eliminated || body.linearVelocity.y > 0.1f || supportingColliders.Count == 0)
             return false;
         // Recheck current geometry: cached contacts alone must not grant coyote time.
         Vector3 foot = FootPosition;
@@ -323,7 +370,7 @@ public class PlayerMovement : MonoBehaviour
     private void ValidateSettings()
     {
         int ground = LayerMask.NameToLayer("Ground");
-        if (playerInput != null && groundCheckTransform != null && groundCheckTransform != transform
+        if (actions != null && groundCheckTransform != null && groundCheckTransform != transform
             && groundCheckTransform.IsChildOf(transform) && groundLayer.value != 0
             && ground >= 0 && (groundLayer.value & (1 << ground)) != 0
             && (groundLayer.value & (1 << gameObject.layer)) == 0
@@ -335,7 +382,7 @@ public class PlayerMovement : MonoBehaviour
             && (body.constraints & RigidbodyConstraints.FreezePositionY) == 0
             && Positive(-Physics.gravity.y) && Physics.gravity.x == 0f && Physics.gravity.z == 0f)
             return;
-        Debug.LogError("PlayerMovement: check PlayerInput/Move/Jump, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump values plus a finite fall death height.", this);
+        Debug.LogError("PlayerMovement: check input actions, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump values plus a finite fall death height.", this);
         enabled = false;
     }
 
@@ -343,7 +390,7 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!isEliminated)
+        if (state != PlayerState.Eliminated)
             return;
         // shortcut: 로컬 1인 프로토타입 안내, 실제 HUD·다국어 도입 시 UI 체계로 이전.
         if (eliminationStyle == null)
@@ -368,7 +415,7 @@ public class PlayerMovement : MonoBehaviour
     {
         if (groundCheckTransform == null)
             return;
-        Gizmos.color = grounded ? Color.green : Color.red;
+        Gizmos.color = state == PlayerState.Grounded ? Color.green : Color.red;
         Gizmos.DrawWireSphere(groundCheckTransform.position, groundCheckRadius);
     }
 }

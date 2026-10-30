@@ -16,12 +16,15 @@ public class JumpTests
     private GameObject ground;
     private Rigidbody body;
     private PlayerMovement movement;
-    private PlayerInput playerInput;
-    private InputActionAsset actions;
+    private PlayerInputActions actions;
     private Keyboard keyboard;
     private Mouse mouse;
     private SimulationMode previousSimulation;
     private InputSettings.UpdateMode previousInputMode;
+    private InputSettings.BackgroundBehavior previousBackground;
+#if UNITY_EDITOR
+    private InputSettings.EditorInputBehaviorInPlayMode previousEditorInput;
+#endif
     private Scene previousScene;
     private Scene testScene;
     private Scene integrationScene;
@@ -35,6 +38,12 @@ public class JumpTests
         SceneManager.SetActiveScene(testScene);
         previousSimulation = Physics.simulationMode;
         previousInputMode = InputSystem.settings.updateMode;
+        previousBackground = InputSystem.settings.backgroundBehavior;
+        InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+#if UNITY_EDITOR
+        previousEditorInput = InputSystem.settings.editorInputBehaviorInPlayMode;
+        InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+#endif
         Physics.simulationMode = SimulationMode.Script;
         InputSystem.settings.updateMode = InputSettings.UpdateMode.ProcessEventsManually;
         keyboard = InputSystem.AddDevice<Keyboard>();
@@ -52,24 +61,16 @@ public class JumpTests
         body.constraints = RigidbodyConstraints.FreezeRotation;
 #if UNITY_EDITOR
         player.GetComponent<Collider>().sharedMaterial = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>("Assets/PlayerFriction.physicMaterial");
-        actions = Object.Instantiate(AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Player_Actions.inputactions"));
 #endif
-        Assert.That(actions, Is.Not.Null);
         var foot = new GameObject("GroundCheck").transform;
         foot.SetParent(player.transform, false);
         foot.localPosition = Vector3.down;
         movement = player.AddComponent<PlayerMovement>();
         SetField("groundCheckTransform", foot);
         SetField("groundLayer", (LayerMask)(1 << ground.layer));
-        playerInput = player.AddComponent<PlayerInput>();
-        playerInput.actions = actions;
-        playerInput.defaultActionMap = "Player";
-        playerInput.notificationBehavior = PlayerNotifications.SendMessages;
-        playerInput.neverAutoSwitchControlSchemes = true;
         player.SetActive(true);
-        playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
-        playerInput.ActivateInput();
-        playerInput.SwitchCurrentActionMap("Player");
+        actions = (PlayerInputActions)Field("actions").GetValue(movement);
+        actions.devices = new InputDevice[] { keyboard, mouse };
         movement.SendMessage("OnApplicationFocus", true);
         Physics.SyncTransforms();
         Press();
@@ -81,11 +82,14 @@ public class JumpTests
     {
         Object.DestroyImmediate(player);
         Object.DestroyImmediate(ground);
-        Object.DestroyImmediate(actions);
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
         if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
         Physics.simulationMode = previousSimulation;
         InputSystem.settings.updateMode = previousInputMode;
+        InputSystem.settings.backgroundBehavior = previousBackground;
+#if UNITY_EDITOR
+        InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorInput;
+#endif
         if (integrationScene.IsValid() && integrationScene.isLoaded)
             yield return SceneManager.UnloadSceneAsync(integrationScene);
         if (previousScene.IsValid() && previousScene.isLoaded) SceneManager.SetActiveScene(previousScene);
@@ -129,7 +133,7 @@ public class JumpTests
     [Test]
     public void JumpActionUsesSpaceButton()
     {
-        var jump = playerInput.actions.FindAction("Player/Jump");
+        var jump = actions.Player.Jump;
         Assert.That(jump, Is.Not.Null);
         Assert.That(jump.type, Is.EqualTo(InputActionType.Button));
         Assert.That(System.Array.Exists(jump.bindings.ToArray(), b => b.path == "<Keyboard>/space"), Is.True);
@@ -214,13 +218,15 @@ public class JumpTests
     [TestCase("Jump")]
     public void MissingRequiredActionIsRejected(string name)
     {
-        var action = playerInput.actions.FindAction("Player/" + name);
-        Assert.That(action, Is.Not.Null);
-        action.Disable();
-        action.Rename("Missing" + name);
-        LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("^PlayerMovement: PlayerInput must provide"));
-        movement.SendMessage("Start");
-        Assert.That(movement.enabled, Is.False);
+#if UNITY_EDITOR
+        var source = AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Player_Actions.inputactions");
+        using (var changed = new PlayerInputActions())
+        {
+            changed.asset.FindAction("Player/" + name, true).RemoveAction();
+            Assert.That(PlayerInputRefactorTests.CollectMismatches(source, changed.asset),
+                Has.Some.Contains("/" + name + " is missing"));
+        }
+#endif
     }
 
     [TestCase("rising")]
@@ -260,51 +266,67 @@ public class JumpTests
     [Test]
     public void ShortPressIsConsumedOnceAndLosingSupportDiscardsRequest()
     {
-        InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space));
-        InputSystem.QueueStateEvent(keyboard, new KeyboardState());
-        InputSystem.Update();
-        Step();
-        Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
-        float first = body.linearVelocity.y;
-        Step();
-        Assert.That(body.linearVelocity.y, Is.LessThan(first));
-        Step(160);
-        Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
-        Press(Key.Space);
-        Assert.That((bool)Field("pendingJump").GetValue(movement), Is.True);
-        Teleport(start + Vector3.up * 5f);
-        Step();
-        Assert.That(body.linearVelocity.y, Is.LessThan(0f), "A request cannot survive loss of support.");
-        Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+        for (int sample = 0; sample < 5; sample++)
+        {
+            Press(); Teleport(start); Step(5);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space));
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            Step();
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            float first = body.linearVelocity.y;
+            Step();
+            Assert.That(body.linearVelocity.y, Is.LessThan(first));
+            Step(160);
+            Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
+            Press(Key.Space);
+            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.True);
+            Teleport(start + Vector3.up * 5f);
+            Step();
+            Assert.That(body.linearVelocity.y, Is.LessThan(0f), "A request cannot survive loss of support.");
+            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+        }
     }
 
     [Test]
     public void FocusAndDisableClearRequestsAndRequireRelease()
     {
-        Press(Key.Space);
-        movement.SendMessage("OnApplicationFocus", false);
-        Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
-        movement.SendMessage("OnApplicationFocus", true);
-        InputSystem.Update(); Step(5);
-        Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
-        Press(); Press(Key.W, Key.Space); Step(10);
-        Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
-        float vertical = body.linearVelocity.y;
-        movement.SendMessage("OnApplicationFocus", false);
-        Assert.That(body.linearVelocity.y, Is.EqualTo(vertical));
-        Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
-        movement.SendMessage("OnApplicationFocus", true);
-        InputSystem.Update(); Step(160);
-        Assert.That(Grounded(), Is.True);
-        Press(); Press(Key.Space);
-        movement.enabled = false;
-        Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
-        movement.enabled = true;
-        movement.SendMessage("OnApplicationFocus", true);
-        InputSystem.Update(); Step(5);
-        Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
-        Press(); Press(Key.Space); Step();
-        Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+        for (int sample = 0; sample < 5; sample++)
+        {
+            Press(); Teleport(start); Step(5);
+            Press(Key.Space);
+            movement.SendMessage("OnApplicationFocus", false);
+            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+            movement.SendMessage("OnApplicationFocus", true);
+            InputSystem.Update(); Step(5);
+            Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
+            Press(); Press(Key.W, Key.Space); Step(10);
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            float vertical = body.linearVelocity.y;
+            movement.SendMessage("OnApplicationFocus", false);
+            Assert.That(body.linearVelocity.y, Is.EqualTo(vertical));
+            Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
+            movement.SendMessage("OnApplicationFocus", true);
+            InputSystem.Update(); Step(160);
+            Assert.That(Grounded(), Is.True);
+            Press(); Press(Key.Space);
+            movement.enabled = false;
+            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+            movement.enabled = true;
+            movement.SendMessage("OnApplicationFocus", true);
+            InputSystem.Update(); Step(5);
+            Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
+            Press(); Press(Key.Space); Step();
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            vertical = body.linearVelocity.y;
+            movement.enabled = false;
+            Assert.That(body.linearVelocity.y, Is.EqualTo(vertical));
+            movement.enabled = true;
+            movement.SendMessage("OnApplicationFocus", true);
+            InputSystem.Update(); Step(160);
+            Assert.That(Grounded(), Is.True);
+            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+        }
     }
 
     [Test]
@@ -363,7 +385,7 @@ public class JumpTests
     public IEnumerator SampleSceneRunsJumpMovementCameraAndReloadWithNaturalLifecycle()
     {
 #if UNITY_EDITOR
-        playerInput.DeactivateInput();
+        actions.Player.Disable();
         Physics.simulationMode = SimulationMode.FixedUpdate;
         InputSystem.settings.updateMode = InputSettings.UpdateMode.ProcessEventsInDynamicUpdate;
         yield return UnityEditor.SceneManagement.EditorSceneManager.LoadSceneAsyncInPlayMode(
@@ -372,9 +394,8 @@ public class JumpTests
         SceneManager.SetActiveScene(integrationScene);
         var actualPlayer = FindScenePlayer();
         var actualBody = actualPlayer.GetComponent<Rigidbody>();
-        var actualInput = actualPlayer.GetComponent<PlayerInput>();
-        actualInput.neverAutoSwitchControlSchemes = true;
-        actualInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
+        var actualInput = (PlayerInputActions)Field("actions").GetValue(actualPlayer);
+        actualInput.devices = new InputDevice[] { keyboard, mouse };
         actualPlayer.SendMessage("OnApplicationFocus", true);
         InputSystem.QueueStateEvent(keyboard, new KeyboardState());
         for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
@@ -401,7 +422,7 @@ public class JumpTests
             if (actualBody.position.y < 0.8f) break;
         }
         Assert.That(actualBody.position.y, Is.LessThan(1f));
-        Assert.That((bool)Field("grounded").GetValue(actualPlayer), Is.False);
+        Assert.That(Field("state").GetValue(actualPlayer).ToString(), Is.Not.EqualTo("Grounded"));
         InputSystem.QueueStateEvent(keyboard, new KeyboardState()); yield return null;
         InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space));
         for (int i = 0; i < 3; i++) yield return new WaitForFixedUpdate();
@@ -417,17 +438,18 @@ public class JumpTests
         Physics.SyncTransforms();
         InputSystem.QueueStateEvent(keyboard, new KeyboardState());
         for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
-        Assert.That((bool)Field("grounded").GetValue(actualPlayer), Is.False);
+        Assert.That(Field("state").GetValue(actualPlayer).ToString(), Is.Not.EqualTo("Grounded"));
 
         yield return SceneManager.UnloadSceneAsync(integrationScene);
         yield return UnityEditor.SceneManagement.EditorSceneManager.LoadSceneAsyncInPlayMode(
             "Assets/Scenes/SampleScene.unity", new LoadSceneParameters(LoadSceneMode.Additive));
         integrationScene = SceneManager.GetSceneByPath("Assets/Scenes/SampleScene.unity");
         actualPlayer = FindScenePlayer();
+        ((PlayerInputActions)Field("actions").GetValue(actualPlayer)).devices = new InputDevice[] { keyboard, mouse };
         actualBody = actualPlayer.GetComponent<Rigidbody>();
         for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
         Assert.That(Vector3.Distance(actualBody.position, new Vector3(0, 1, 0)), Is.LessThan(0.03f));
-        Assert.That((bool)Field("grounded").GetValue(actualPlayer), Is.True);
+        Assert.That(Field("state").GetValue(actualPlayer).ToString(), Is.EqualTo("Grounded"));
         Assert.That(actualBody.linearVelocity.y, Is.LessThanOrEqualTo(0.1f), "Reload must not replay held Space.");
 #else
         Assert.Ignore("SampleScene asset loading requires the Unity Editor.");
@@ -484,7 +506,7 @@ public class JumpTests
                 ScenePointVisible(camera, new Vector3(actualBody.position.x, 0, actualBody.position.z) + offset);
             InputSystem.QueueStateEvent(mouse, new MouseState { position = new Vector2(i % 2 == 0 ? 10 : 900, 300) });
             if (i == 10) InputSystem.QueueStateEvent(keyboard, new KeyboardState(direction));
-            if (rose && fell && (bool)Field("grounded").GetValue(actualPlayer)) { landed = true; break; }
+            if (rose && fell && Field("state").GetValue(actualPlayer).ToString() == "Grounded") { landed = true; break; }
         }
         Assert.That(rose && fell && landed, Is.True, "Real scene jump must complete.");
         Assert.That(peak - baseline, Is.InRange(height * 0.95f, height * 1.05f));
@@ -548,7 +570,7 @@ public class JumpTests
             + ", focused=" + Field("focused").GetValue(movement)
             + ", ready=" + Field("jumpReadyAfterRelease").GetValue(movement)
             + ", held=" + Field("jumpHeld").GetValue(movement)
-            + ", Jump=" + playerInput.actions["Jump"].ReadValue<float>() + ", enabled=" + movement.enabled);
+            + ", Jump=" + actions.Player.Jump.ReadValue<float>() + ", enabled=" + movement.enabled);
         if (!hold) Press(moving ? new[] { Key.W } : new Key[0]);
         float peak = body.position.y;
         for (int i = 0; i < 250; i++)
@@ -561,7 +583,7 @@ public class JumpTests
         return 0f;
     }
 
-    private bool Grounded() => (bool)Field("grounded").GetValue(movement);
+    private bool Grounded() => Field("state").GetValue(movement).ToString() == "Grounded";
     private FieldInfo Field(string name)
     {
         var field = typeof(PlayerMovement).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);

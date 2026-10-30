@@ -43,9 +43,8 @@ public class RestartSceneTests
         Assert.That(player, Is.Not.Null);
         Assert.That(camera, Is.Not.Null);
         body = player.GetComponent<Rigidbody>();
-        var input = player.GetComponent<PlayerInput>();
-        input.neverAutoSwitchControlSchemes = true;
-        input.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
+        var input = (PlayerInputActions)Read(player, "actions");
+        input.devices = new InputDevice[] { keyboard, mouse };
         player.SendMessage("OnApplicationFocus", true);
         Press();
         for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
@@ -79,7 +78,7 @@ public class RestartSceneTests
         Assert.That(Read(follow, "target"), Is.EqualTo(player.transform));
         Assert.That(Read(player, "cameraFollow"), Is.EqualTo(follow));
         Assert.That((float)Read(player, "fallDeathHeight"), Is.EqualTo(-10f));
-        Assert.That((bool)Read(player, "grounded"), Is.True);
+        Assert.That(Read(player, "state").ToString(), Is.EqualTo("Grounded"));
         System.IO.Directory.CreateDirectory("TestResults");
         System.IO.File.WriteAllText("TestResults/restart-timings.txt", "Same SampleScene instance, natural falls and restart\n");
         for (int sample = 0; sample < 20; sample++)
@@ -89,8 +88,8 @@ public class RestartSceneTests
             Press(Key.Space); yield return new WaitForFixedUpdate();
             Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
             Press();
-            for (int i = 0; i < 160 && !(bool)Read(player, "grounded"); i++) yield return new WaitForFixedUpdate();
-            Assert.That((bool)Read(player, "grounded"), Is.True);
+            for (int i = 0; i < 160 && Read(player, "state").ToString() != "Grounded"; i++) yield return new WaitForFixedUpdate();
+            Assert.That(Read(player, "state").ToString(), Is.EqualTo("Grounded"));
             body.position = new Vector3(17.5f, 1f, 0f);
             body.linearVelocity = Vector3.zero;
             Physics.SyncTransforms();
@@ -126,6 +125,14 @@ public class RestartSceneTests
             Assert.That(Time.realtimeSinceStartup - requestedAt, Is.LessThan(2f));
             Press();
             yield return new WaitForEndOfFrame();
+            var restoredFrame = ScreenCapture.CaptureScreenshotAsTexture();
+            try
+            {
+                AssertNoOverlayPanel(restoredFrame);
+                if (sample == 0 || sample == 9)
+                    System.IO.File.WriteAllBytes("TestResults/restart-restored-" + sample + ".png", restoredFrame.EncodeToPNG());
+            }
+            finally { Object.Destroy(restoredFrame); }
             Vector3 expected = player.transform.position - camera.transform.forward * (float)Read(follow, "distance");
             Assert.That(Vector3.Distance(camera.transform.position, expected), Is.LessThan(0.1f));
             Vector3 viewport = camera.WorldToViewportPoint(player.transform.position);
@@ -145,7 +152,7 @@ public class RestartSceneTests
             {
                 yield return new WaitForSeconds(2f);
                 Assert.That(Vector3.Distance(body.position, start), Is.LessThan(0.04f));
-                Assert.That((bool)Read(player, "grounded"), Is.True);
+                Assert.That(Read(player, "state").ToString(), Is.EqualTo("Grounded"));
                 Assert.That(player.IsEliminated, Is.False);
             }
         }
@@ -170,7 +177,7 @@ public class RestartSceneTests
             Press(Key.Space, Key.R);
             for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
             Assert.That(player.IsEliminated, Is.False);
-            Assert.That((bool)Read(player, "grounded"), Is.True);
+            Assert.That(Read(player, "state").ToString(), Is.EqualTo("Grounded"));
             Assert.That(body.linearVelocity.y, Is.LessThanOrEqualTo(0.1f));
             Press(); yield return null;
             Press(Key.Space); yield return new WaitForFixedUpdate();
@@ -192,6 +199,18 @@ public class RestartSceneTests
         }
         Assert.That(black, Is.GreaterThan(pixels.Length / 2));
         return white;
+    }
+
+    private static void AssertNoOverlayPanel(Texture2D texture)
+    {
+        // Same area as the eliminated frame; the opaque dark panel must be gone.
+        int width = Mathf.Min(380, (int)(texture.width * 0.8f));
+        int height = Mathf.Min(80, texture.height);
+        var pixels = texture.GetPixels((texture.width - width) / 2, (texture.height - height) / 2, width, height);
+        int black = 0;
+        foreach (var pixel in pixels)
+            if (pixel.r < 0.08f && pixel.g < 0.08f && pixel.b < 0.08f) black++;
+        Assert.That(black, Is.LessThan(pixels.Length / 2), "The first restored Game view must not retain the elimination panel.");
     }
 
     private static object Read(object target, string name)

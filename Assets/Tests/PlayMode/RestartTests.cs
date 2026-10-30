@@ -15,8 +15,7 @@ public class RestartTests
     private GameObject player, ground;
     private Rigidbody body;
     private PlayerMovement movement;
-    private PlayerInput playerInput;
-    private InputActionAsset actions;
+    private PlayerInputActions actions;
     private Keyboard keyboard;
     private Mouse mouse;
     private Scene previousScene, testScene;
@@ -44,9 +43,7 @@ public class RestartTests
 #if UNITY_EDITOR
         editorInput = InputSystem.settings.editorInputBehaviorInPlayMode;
         InputSystem.settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
-        actions = Object.Instantiate(AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Player_Actions.inputactions"));
 #endif
-        Assert.That(actions, Is.Not.Null);
         keyboard = InputSystem.AddDevice<Keyboard>();
         mouse = InputSystem.AddDevice<Mouse>();
         ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -64,14 +61,9 @@ public class RestartTests
         movement = player.AddComponent<PlayerMovement>();
         SetField("groundCheckTransform", foot);
         SetField("groundLayer", (LayerMask)(1 << ground.layer));
-        playerInput = player.AddComponent<PlayerInput>();
-        playerInput.actions = actions;
-        playerInput.defaultActionMap = "Player";
-        playerInput.notificationBehavior = PlayerNotifications.SendMessages;
-        playerInput.neverAutoSwitchControlSchemes = true;
         player.SetActive(true);
-        playerInput.SwitchCurrentControlScheme("Keyboard&Mouse", keyboard, mouse);
-        playerInput.ActivateInput();
+        actions = (PlayerInputActions)Field("actions").GetValue(movement);
+        actions.devices = new InputDevice[] { keyboard, mouse };
         movement.SendMessage("OnApplicationFocus", true);
         Physics.SyncTransforms();
         Press(); Step(5);
@@ -82,7 +74,6 @@ public class RestartTests
     {
         Object.DestroyImmediate(player);
         Object.DestroyImmediate(ground);
-        Object.DestroyImmediate(actions);
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
         if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
         Physics.simulationMode = simulation;
@@ -98,7 +89,7 @@ public class RestartTests
     [Test]
     public void RestartBindingIsKeyboardButton()
     {
-        var action = playerInput.actions.FindAction("Player/Restart", true);
+        var action = actions.Player.Restart;
         Assert.That(action.type, Is.EqualTo(InputActionType.Button));
         Assert.That(action.wantsInitialStateCheck, Is.False);
         Assert.That(action.bindings[0].effectivePath, Is.EqualTo("<Keyboard>/r"));
@@ -151,10 +142,15 @@ public class RestartTests
     [Test]
     public void MissingRestartActionIsRejected()
     {
-        playerInput.actions.FindAction("Player/Restart", true).Rename("MissingRestart");
-        LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("^PlayerMovement: PlayerInput must provide"));
-        movement.SendMessage("Start");
-        Assert.That(movement.enabled, Is.False);
+#if UNITY_EDITOR
+        var source = AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Player_Actions.inputactions");
+        using (var changed = new PlayerInputActions())
+        {
+            changed.Player.Restart.RemoveAction();
+            Assert.That(PlayerInputRefactorTests.CollectMismatches(source, changed.asset),
+                Has.Some.Contains("/Restart is missing"));
+        }
+#endif
     }
 
     [Test]
@@ -207,7 +203,11 @@ public class RestartTests
             else movement.enabled = false;
             Press();
             if (change == "focus") movement.SendMessage("OnApplicationFocus", true);
-            else movement.enabled = true;
+            else
+            {
+                movement.enabled = true;
+                movement.SendMessage("OnApplicationFocus", true);
+            }
             Press(); Step(5);
             Assert.That(movement.IsEliminated, Is.True, "A stale request must not survive lifecycle changes.");
             Restart();
@@ -319,7 +319,7 @@ public class RestartTests
             Physics.Simulate(Time.fixedDeltaTime);
         }
     }
-    private bool Grounded() => (bool)Field("grounded").GetValue(movement);
+    private bool Grounded() => Field("state").GetValue(movement).ToString() == "Grounded";
     private FieldInfo Field(string name) => typeof(PlayerMovement).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
     private void SetField(string name, object value) => Field(name).SetValue(movement, value);
 }

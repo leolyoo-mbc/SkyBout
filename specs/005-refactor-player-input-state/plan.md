@@ -8,7 +8,7 @@
 
 ## Summary
 
-기존 Player_Actions 자산에서 `PlayerActions` C# 클래스를 생성하고 PlayerMovement가 인스턴스·이벤트·Enable/Disable/Dispose를 직접 관리한다. PlayerInput 컴포넌트는 SampleScene에서 실제 삭제하고 코드·테스트의 관련 의존성도 제거한다. grounded와 isEliminated는 `Grounded / Airborne / Eliminated` 단일 Enum으로 교체한다. FixedUpdate는 낙사 우선 순서를 지키는 C# 8.0 tuple pattern·when guard와 switch expression으로 정리한다. 독립적인 초점·중립·요청·실제 키 해제 정보는 유지한다. 생성 경로를 기존 런타임 asmdef 아래에 두어 새 어셈블리·패키지·입력 서비스 없이 완성한다.
+기존 Player_Actions 자산에서 `PlayerInputActions` C# 클래스를 생성하고 PlayerMovement가 인스턴스·이벤트·Enable/Disable/Dispose를 직접 관리한다. PlayerInput 컴포넌트는 SampleScene에서 실제 삭제하고 코드·테스트의 관련 의존성도 제거한다. grounded와 isEliminated는 `Grounded / Airborne / Eliminated` 단일 Enum으로 교체한다. FixedUpdate는 낙사 우선 순서를 지키는 C# 8.0 tuple pattern·when guard와 switch expression으로 정리한다. 독립적인 초점·중립·요청·실제 키 해제 정보는 유지한다. 생성 경로를 기존 런타임 asmdef 아래에 두어 새 어셈블리·패키지·입력 서비스 없이 완성한다.
 
 ## Technical Context
 
@@ -72,7 +72,7 @@ Assets/
 ├── Player_Actions.inputactions.meta     # Generate C# Class 설정
 ├── Scenes/SampleScene.unity             # PlayerInput 컴포넌트/목록 참조 삭제
 ├── Scripts/
-│   ├── Input/PlayerActions.cs           # Unity 자동 생성 + 폴더/파일 meta
+│   ├── Input/PlayerInputActions.cs      # Unity 자동 생성 + 폴더/파일 meta
 │   ├── PlayerMovement.cs               # 생성 입력 소유권·이벤트·Enum·switch
 │   ├── TopDownCameraFollow.cs           # 기존 SnapToTarget 사용, 변경 불필요
 │   └── SkyBout.Runtime.asmdef           # 기존 Unity.InputSystem 참조 유지
@@ -94,7 +94,7 @@ Assets/
 
 핵심 결정:
 
-1. 생성 클래스 `PlayerActions`, 경로 `Assets/Scripts/Input/PlayerActions.cs`, namespace 없음.
+1. 생성 클래스 `PlayerInputActions`, 경로 `Assets/Scripts/Input/PlayerInputActions.cs`, namespace 없음.
 2. 직접 named performed/canceled 구독. 생성 인터페이스·PlayerInput 병행은 사용하지 않음.
 3. onAfterUpdate의 실제 control 해제 관찰 유지. canceled만으로 초점 복귀 안전성을 대체하지 않음.
 4. state 하나로 grounded/isEliminated 교체. 독립 bool은 역할이 있는 한 보존.

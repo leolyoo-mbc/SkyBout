@@ -15,7 +15,7 @@
 
 ## 2. 런타임 소유권
 
-- PlayerMovement만 생성된 PlayerActions 인스턴스를 소유한다. PlayerInput, InputValue, SendMessages 기반 입력 수신과 PlayerInput 문자열 액션 조회는 제거한다.
+- PlayerMovement만 생성된 PlayerInputActions 인스턴스를 소유한다. PlayerInput, InputValue, SendMessages 기반 입력 수신과 PlayerInput 문자열 액션 조회는 제거한다.
 - OnEnable: named performed/canceled 메서드와 onAfterUpdate를 한 번 구독하고 Player 맵을 Enable한다.
 - OnDisable: 이벤트·관찰 구독 해제 후 Player 맵 Disable, 예약·입력·지지 정리. OnDestroy: 생성 자원 Dispose.
 - 물리 변경은 기존처럼 FixedUpdate에서 수행한다. canceled는 유효한 짧은 입력 요청을 잃게 만들지 않아야 한다.
@@ -25,7 +25,7 @@
 ## 3. 생성 자산 계약
 
 - Source: `Assets/Player_Actions.inputactions`; GUID `f0a2cf4a96d9f914da69d6bb017890e3` 유지.
-- Generate C# Class: enabled; class `PlayerActions`; path `Assets/Scripts/Input/PlayerActions.cs`; namespace 없음.
+- Generate C# Class: enabled; class `PlayerInputActions`; path `Assets/Scripts/Input/PlayerInputActions.cs`; namespace 없음. 생성 클래스명은 맵 래퍼 구조체 `PlayerActions`와 달라야 한다.
 - 기존 Player/Move, Player/Jump, Player/Restart 이름·ID·타입·바인딩과 initialStateCheck, 제어 스킴 보존. 불필요한 `Assets/InputSystem_Actions.inputactions`는 변경하지 않는다.
 - 생성 코드는 재생성 가능한 산출물이며 손으로 수정하지 않는다. 원본과 생성 인스턴스의 일치를 시험한다.
 - 생성 경로는 SkyBout.Runtime.asmdef 아래여야 한다. 새 asmdef·패키지·언어 버전 재정의는 요구하지 않는다.

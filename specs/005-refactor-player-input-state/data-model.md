@@ -28,7 +28,7 @@
 
 ## 2. InputSession — 생성 클래스 소유권
 
-별도 서비스/모델 클래스를 만들지 않고 PlayerMovement의 private `PlayerActions` 필드로 보관한다.
+별도 서비스/모델 클래스를 만들지 않고 PlayerMovement의 private `PlayerInputActions` 필드로 보관한다.
 
 | 정보 | 의미 | 수명/검증 |
 | --- | --- | --- |
