@@ -786,6 +786,7 @@ MonoBehaviour:
   deceleration: 50
   turnAcceleration: 50
   jumpHeight: 2
+  cameraFollow: {fileID: 330585548}
   fallDeathHeight: -10
   groundCheckTransform: {fileID: 537746668}
   groundCheckRadius: 0.2

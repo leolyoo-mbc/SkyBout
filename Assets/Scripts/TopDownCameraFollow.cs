@@ -17,7 +17,9 @@ public class TopDownCameraFollow : MonoBehaviour
         view = GetComponent<Camera>();
     }
 
-    private void Start()
+    private void Start() => SnapToTarget();
+
+    public void SnapToTarget()
     {
         if (!ValidateSettings())
             return;

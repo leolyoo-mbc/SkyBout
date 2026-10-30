@@ -38,6 +38,12 @@ public class PlayerMovement : MonoBehaviour
     private bool jumpReadyAfterRelease;
     private bool isEliminated;
     private GUIStyle eliminationStyle;
+    [SerializeField] private TopDownCameraFollow cameraFollow;
+    private Vector3 startPosition;
+    private Quaternion startRotation;
+    private bool pendingRestart;
+    private bool restartHeld;
+    private bool restartReadyAfterRelease;
 
     public bool IsEliminated => isEliminated;
 
@@ -45,6 +51,8 @@ public class PlayerMovement : MonoBehaviour
     {
         body = GetComponent<Rigidbody>();
         playerInput = GetComponent<PlayerInput>();
+        startPosition = body.position;
+        startRotation = body.rotation;
         ValidateSettings();
     }
 
@@ -54,6 +62,7 @@ public class PlayerMovement : MonoBehaviour
         waitingForNeutral = true;
         input = Vector2.zero;
         ResetJumpInput();
+        ResetRestartInput();
         if (body != null && !body.isKinematic)
             body.WakeUp(); // Rebuild support callbacks after re-enabling a sleeping player.
         InputSystem.onAfterUpdate += CheckForNeutralInput;
@@ -63,9 +72,10 @@ public class PlayerMovement : MonoBehaviour
     {
         if (playerInput == null || playerInput.actions == null
             || playerInput.actions.FindAction("Player/Move") == null
-            || playerInput.actions.FindAction("Player/Jump") == null)
+            || playerInput.actions.FindAction("Player/Jump") == null
+            || playerInput.actions.FindAction("Player/Restart") == null)
         {
-            Debug.LogError("PlayerMovement: PlayerInput must provide Player/Move and Player/Jump.", this);
+            Debug.LogError("PlayerMovement: PlayerInput must provide Player/Move, Player/Jump and Player/Restart.", this);
             enabled = false;
         }
     }
@@ -77,6 +87,7 @@ public class PlayerMovement : MonoBehaviour
         supportingColliders.Clear();
         grounded = false;
         ResetJumpInput();
+        ResetRestartInput();
         StopHorizontalMovement();
     }
 
@@ -105,6 +116,44 @@ public class PlayerMovement : MonoBehaviour
             pendingJump = true;
     }
 
+    public void OnRestart(InputValue value)
+    {
+        bool pressed = value.isPressed;
+        bool newPress = pressed && !restartHeld;
+        restartHeld = pressed;
+        if (newPress && restartReadyAfterRelease && isActiveAndEnabled && focused && isEliminated)
+        {
+            pendingRestart = true;
+            restartReadyAfterRelease = false;
+        }
+    }
+
+    private void ResetRestartInput()
+    {
+        pendingRestart = false;
+        restartHeld = false;
+        restartReadyAfterRelease = false;
+    }
+
+    private void Restart()
+    {
+        pendingRestart = false;
+        body.position = startPosition;
+        body.rotation = startRotation;
+        transform.SetPositionAndRotation(startPosition, startRotation);
+        body.linearVelocity = Vector3.zero;
+        body.angularVelocity = Vector3.zero;
+        supportingColliders.Clear();
+        grounded = false;
+        ResetJumpInput();
+        isEliminated = false;
+        waitingForNeutral = false;
+        input = Vector2.ClampMagnitude(playerInput.actions.FindAction("Player/Move").ReadValue<Vector2>(), 1f);
+        body.WakeUp();
+        if (cameraFollow != null)
+            cameraFollow.SnapToTarget();
+    }
+
     private void ResetJumpInput()
     {
         pendingJump = false;
@@ -117,12 +166,27 @@ public class PlayerMovement : MonoBehaviour
         focused = hasFocus;
         waitingForNeutral = true;
         ResetJumpInput();
+        ResetRestartInput();
         StopHorizontalMovement();
     }
 
     private void CheckForNeutralInput()
     {
-        if (isEliminated || !focused || playerInput == null || playerInput.actions == null)
+        if (!focused || playerInput == null || playerInput.actions == null)
+            return;
+        var restart = playerInput.actions.FindAction("Player/Restart");
+        if (restart != null && restart.enabled)
+        {
+            bool actuated = false;
+            foreach (var control in restart.controls)
+                actuated |= control.IsActuated();
+            if (!actuated)
+            {
+                restartHeld = false;
+                restartReadyAfterRelease = true;
+            }
+        }
+        if (isEliminated)
             return;
         var jump = playerInput.actions.FindAction("Player/Jump");
         // SendMessages omits canceled callbacks for Button actions. Observe release here.
@@ -154,13 +218,17 @@ public class PlayerMovement : MonoBehaviour
         if (!isEliminated && FootPosition.y < fallDeathHeight)
         {
             isEliminated = true;
+            pendingRestart = false;
             grounded = false;
             supportingColliders.Clear();
             ResetJumpInput();
         }
         if (isEliminated)
         {
-            StopHorizontalMovement();
+            if (pendingRestart && focused)
+                Restart();
+            else
+                StopHorizontalMovement();
             return;
         }
         grounded = HasGroundSupport();
@@ -292,7 +360,7 @@ public class PlayerMovement : MonoBehaviour
         GUI.color = new Color(0f, 0f, 0f, 0.95f);
         GUI.DrawTexture(panel, Texture2D.whiteTexture);
         GUI.color = Color.white;
-        GUI.Label(panel, "ELIMINATED", eliminationStyle);
+        GUI.Label(panel, "ELIMINATED\nR: 재시작", eliminationStyle);
         GUI.color = previousColor;
     }
 

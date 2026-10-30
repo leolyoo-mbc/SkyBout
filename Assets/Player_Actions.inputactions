@@ -17,6 +17,16 @@
                     "priority": 0
                 },
                 {
+                    "name": "Restart",
+                    "type": "Button",
+                    "id": "a1a29d1d-9849-42bd-8c45-f0404502d1e0",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false,
+                    "priority": 0
+                },
+                {
                     "name": "Jump",
                     "type": "Button",
                     "id": "7e1f7cec-26c8-4aa5-8f3b-10482c3b8050",
@@ -157,6 +167,17 @@
                     "processors": "",
                     "groups": "Joystick",
                     "action": "Move",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "867536df-c971-4ddb-b65e-8ac4a7bb7d0c",
+                    "path": "<Keyboard>/r",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "Restart",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
