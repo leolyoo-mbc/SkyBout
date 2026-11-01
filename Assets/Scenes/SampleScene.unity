@@ -847,7 +847,9 @@ MonoBehaviour:
   turnAcceleration: 50
   jumpHeight: 2
   fallDeathHeight: -10
-  glideDescentSpeed: 2
+  glideTargetFootHeight: 2
+  glideHeightResponse: 3
+  glideVerticalAcceleration: 10
   feetTransform: {fileID: 537746668}
   feetMarkerRadius: 0.2
   groundLayer:

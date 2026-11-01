@@ -114,8 +114,8 @@ public class RestartTests
             // 재시작 전 접촉을 재사용하지 않고 새 물리 접촉을 기다려야 한다.
             Press(); Press(Key.Space);
             movement.SendMessage("FixedUpdate");
-            Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f),
-                "Fresh Space before support rebuild may glide, but old support must never permit an upward jump.");
+            Assert.That(Mathf.Abs(body.linearVelocity.y), Is.LessThanOrEqualTo(0.20001f),
+                "Fresh Space before support rebuild may glide, but must not add a jump or reset vertical speed.");
             Assert.That(movement.IsGliding, Is.True);
             Assert.That(Grounded(), Is.False);
             Press(); Step(Mathf.CeilToInt(2f / Time.fixedDeltaTime));

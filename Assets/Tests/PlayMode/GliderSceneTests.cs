@@ -93,11 +93,11 @@ public class GliderSceneTests
         Assert.That(visual.activeSelf, Is.True);
         Assert.That(Time.realtimeSinceStartup - requested, Is.LessThanOrEqualTo(0.2f));
         yield return new WaitForEndOfFrame();
-        AssertWingRendered(visual, "TestResults/006-deployed.png");
+        AssertWingRendered(visual, "TestResults/007-hold-deployed.png");
     }
 
     [UnityTest]
-    public IEnumerator LandingFrameClosesWingAndFreshGroundPressJumps()
+    public IEnumerator HoldingAtTwoMetresThenReleaseLandsAndFreshGroundPressJumps()
     {
         var visual = (GameObject)Read("gliderVisual");
         Press(Key.Space); yield return null;
@@ -106,10 +106,18 @@ public class GliderSceneTests
         Press(Key.Space); yield return null;
         yield return new WaitForFixedUpdate();
         Assert.That(visual.activeSelf, Is.True);
+        Assert.That((float)Read("glideTargetFootHeight"), Is.EqualTo(2f));
+        Assert.That((float)Read("jumpHeight"), Is.EqualTo(2f));
+        for (int i = 0; i < 250; i++) yield return new WaitForFixedUpdate();
+        Assert.That(body.position.y - 1f, Is.EqualTo(2f).Within(0.1f));
+        Assert.That(player.IsGliding, Is.True);
         Press();
+        yield return null;
+        Assert.That(visual.activeSelf, Is.False, "Releasing Space must close before landing");
+        Assert.That(body.useGravity, Is.True);
         int ticks = 0;
-        while (body.linearVelocity.y < -0.1f && ticks++ < 160) yield return new WaitForFixedUpdate();
-        Assert.That(ticks, Is.LessThan(160));
+        while (Read("state").ToString() != "Grounded" && ticks++ < 250) yield return new WaitForFixedUpdate();
+        Assert.That(ticks, Is.LessThan(250), "Only actual support closes the glider.");
         yield return new WaitForEndOfFrame();
         Assert.That(visual.activeSelf, Is.False);
         Assert.That(Read("state").ToString(), Is.EqualTo("Grounded"));
@@ -119,16 +127,18 @@ public class GliderSceneTests
         Assert.That(viewport.x, Is.InRange(0.1f, 0.9f));
         Assert.That(viewport.y, Is.InRange(0.1f, 0.9f));
         var frame = ScreenCapture.CaptureScreenshotAsTexture();
-        try { System.IO.File.WriteAllBytes("TestResults/006-landed.png", frame.EncodeToPNG()); }
+        try { System.IO.File.WriteAllBytes("TestResults/007-hold-landed.png", frame.EncodeToPNG()); }
         finally { Object.Destroy(frame); }
         Press(Key.Space); yield return null;
         yield return new WaitForFixedUpdate();
         Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
         Assert.That(visual.activeSelf, Is.False);
+        System.IO.File.WriteAllText("TestResults/007-hold-scene-landing.md",
+            $"Actual SampleScene held at foot Y=2, then Space release restored gravity and landed in {ticks} fixed waits: Grounded, wing closed, fresh ground Space jumped. No proximity-grounding change.\n");
     }
 
-    [UnityTest]
-    public IEnumerator TwentyNaturalWalkoffsGlideDieAndRestartSameInstances()
+    [UnityTest, Timeout(300000)]
+    public IEnumerator TenNaturalWalkoffsHoldTwoMetresReleaseFallAndRestartSameInstances()
     {
         var visual = (GameObject)Read("gliderVisual");
         int playerId = player.GetInstanceID(), cameraId = camera.GetInstanceID();
@@ -136,8 +146,8 @@ public class GliderSceneTests
         Vector3 start = body.position;
         Quaternion rotation = body.rotation;
         System.IO.Directory.CreateDirectory("TestResults");
-        System.IO.File.WriteAllText("TestResults/006-repeat-timings.txt", "Natural walking departure, deployment, death, restart\n");
-        for (int sample = 0; sample < 20; sample++)
+        System.IO.File.WriteAllText("TestResults/007-hold-repeat-timings.csv", "sample,deployGameTime,holdGameTime,deathGameTime,overlaySeconds,restartSeconds\n");
+        for (int sample = 0; sample < 10; sample++)
         {
             Assert.That(visual.activeSelf, Is.False);
             Press(Key.D); yield return null;
@@ -148,11 +158,32 @@ public class GliderSceneTests
             Press(Key.Space); yield return null;
             yield return new WaitForFixedUpdate();
             Assert.That(visual.activeSelf, Is.True);
-            Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
+            Assert.That(body.useGravity, Is.False);
+            float deployed = Time.time;
+            Press(Key.Space);
+            // Move farther from the edge using normal input so side contacts cannot count as landing.
+            Press(Key.Space, Key.D);
+            for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+            Press(Key.Space);
+            for (int i = 0; i < 250; i++) yield return new WaitForFixedUpdate();
+            Assert.That(body.position.y - 1f, Is.EqualTo(2f).Within(0.1f));
+            float held = Time.time;
+            float min = float.MaxValue, max = float.MinValue;
+            for (int i = 0; i < 500; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                float foot = body.position.y - 1f;
+                min = Mathf.Min(min, foot); max = Mathf.Max(max, foot);
+                Assert.That(foot, Is.EqualTo(2f).Within(0.1f));
+                Assert.That(player.IsGliding, Is.True);
+            }
+            Assert.That(max - min, Is.LessThanOrEqualTo(0.1f));
+            // Real release, real gravity, real fall; no forced boundary placement.
             Press();
             ticks = 0;
             while (!player.IsEliminated && ticks++ < 400) yield return new WaitForFixedUpdate();
             Assert.That(player.IsEliminated, Is.True);
+            float deathGameTime = Time.time;
             float died = Time.realtimeSinceStartup;
             yield return new WaitForEndOfFrame();
             Assert.That(visual.activeSelf, Is.False);
@@ -162,8 +193,8 @@ public class GliderSceneTests
             try
             {
                 AssertOverlay(deadFrame, true);
-                if (sample == 0 || sample == 19)
-                    System.IO.File.WriteAllBytes($"TestResults/006-eliminated-{sample}.png", deadFrame.EncodeToPNG());
+                if (sample == 0 || sample == 9)
+                    System.IO.File.WriteAllBytes("TestResults/007-hold-eliminated.png", deadFrame.EncodeToPNG());
             }
             finally { Object.Destroy(deadFrame); }
             float requested = Time.realtimeSinceStartup;
@@ -179,8 +210,8 @@ public class GliderSceneTests
             try
             {
                 AssertOverlay(restoredFrame, false);
-                if (sample == 0 || sample == 19)
-                    System.IO.File.WriteAllBytes($"TestResults/006-restored-{sample}.png", restoredFrame.EncodeToPNG());
+                if (sample == 0 || sample == 9)
+                    System.IO.File.WriteAllBytes("TestResults/007-hold-restored.png", restoredFrame.EncodeToPNG());
             }
             finally { Object.Destroy(restoredFrame); }
             Assert.That(body.useGravity, Is.True);
@@ -193,9 +224,22 @@ public class GliderSceneTests
             var follow = camera.GetComponent<TopDownCameraFollow>();
             var distance = (float)typeof(TopDownCameraFollow).GetField("distance", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(follow);
             Assert.That(Vector3.Distance(camera.transform.position, player.transform.position - camera.transform.forward * distance), Is.LessThan(0.1f));
-            System.IO.File.AppendAllText("TestResults/006-repeat-timings.txt", $"{sample}: overlay={visibleAfter:F4}s restart={restoredAfter:F4}s\n");
+            System.IO.File.AppendAllText("TestResults/007-hold-repeat-timings.csv",
+                System.FormattableString.Invariant($"{sample},{deployed:R},{held:R},{deathGameTime:R},{visibleAfter:R},{restoredAfter:R}\n"));
             Press(); yield return null;
             for (int i = 0; i < 5; i++) yield return new WaitForFixedUpdate();
+            Assert.That(Read("state").ToString(), Is.EqualTo("Grounded"));
+            // Each restarted attempt must still accept a fresh jump and fresh airborne deployment.
+            Press(Key.Space); yield return null;
+            for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            Press(); yield return null;
+            Press(Key.Space); yield return null;
+            yield return new WaitForFixedUpdate();
+            Assert.That(player.IsGliding, Is.True);
+            Press();
+            ticks = 0;
+            while (Read("state").ToString() != "Grounded" && ticks++ < 250) yield return new WaitForFixedUpdate();
             Assert.That(Read("state").ToString(), Is.EqualTo("Grounded"));
         }
     }

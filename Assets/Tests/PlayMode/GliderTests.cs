@@ -59,6 +59,7 @@ public class GliderTests
         movement = player.AddComponent<PlayerMovement>();
         Set("feetTransform", foot);
         Set("groundLayer", (LayerMask)(1 << floor.layer));
+        Set("glideTargetFootHeight", 0f); // Origin-floor fixture; actual scene tests use the requested 2m target.
         // The fixture must also compile and run before the glider fields exist.
         typeof(PlayerMovement).GetField("gliderVisual", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(movement, visual);
         player.SetActive(true);
@@ -109,21 +110,24 @@ public class GliderTests
             }
             Press();
             Vector3 before = body.position;
-            Press(Key.Space); Press(); // A short press survives release before physics.
+            Press(Key.Space); Press(); // Released airborne taps must not latch deployment.
+            Assert.That((bool)Read("glideRequested"), Is.False);
+            Press(Key.Space);
             Assert.That((bool)Read("glideRequested"), Is.True);
+            float previousVelocity = body.linearVelocity.y;
             movement.SendMessage("FixedUpdate");
             Assert.That(Gliding(), Is.True);
             Assert.That(visual.activeSelf, Is.True);
             Assert.That(Vector3.Distance(body.position, before), Is.LessThan(0.001f));
             Assert.That(body.useGravity, Is.False);
-            Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
+            Assert.That(Mathf.Abs(body.linearVelocity.y - previousVelocity), Is.LessThanOrEqualTo(0.20001f));
             Assert.That((bool)Read("glideRequested"), Is.False);
             for (int i = 0; i < 5; i++)
             {
-                Press(Key.Space); Step(); Press();
+                Press(Key.Space); Step();
                 Assert.That(Gliding(), Is.True);
-                Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
-                Assert.That(body.position.y, Is.LessThan(before.y));
+                Assert.That(body.useGravity, Is.False);
+                Assert.That((float)Read("glideTargetFootHeight"), Is.Zero);
                 Assert.That((bool)Read("jumpRequested"), Is.False);
             }
         }
@@ -160,7 +164,7 @@ public class GliderTests
 
             ResetOnFloor();
             MoveTo(start + Vector3.up * 0.1f);
-            Press(Key.Space); Press();
+            Press(Key.Space);
             Assert.That((bool)Read("glideRequested"), Is.True);
             MoveTo(start);
             // Let contacts update before consuming the accepted airborne request.
@@ -173,30 +177,73 @@ public class GliderTests
     }
 
     [Test]
-    public void GlideIsSlowerThanFreeFallOverSameSixMetresFivePairs()
+    public void GlideConvergesWhileNonDeployedPlayerStillFallsFivePairs()
     {
-        System.IO.Directory.CreateDirectory("TestResults");
-        System.IO.File.WriteAllText("TestResults/006-descent-pairs.txt", "feet 2 -> -4, initial velocity 0\n");
         for (int sample = 0; sample < 5; sample++)
         {
-            float free = MeasureDescent(false);
-            float glide = MeasureDescent(true);
-            Assert.That(glide, Is.GreaterThan(free));
-            System.IO.File.AppendAllText("TestResults/006-descent-pairs.txt", $"{sample}: free={free:F3}, glide={glide:F3}\n");
+            ResetOnFloor(); MoveTo(new Vector3(520f, 3f, 500f));
+            Step(40);
+            Assert.That(body.position.y - 1f, Is.LessThan(0f));
+            ResetOnFloor(); MoveTo(new Vector3(520f, 3f, 500f));
+            Press(Key.Space); Step(250);
+            Assert.That(body.position.y - 1f, Is.EqualTo(0f).Within(0.1f));
+            Step(500);
+            Assert.That(body.position.y - 1f, Is.EqualTo(0f).Within(0.1f));
+            Assert.That(Gliding(), Is.True);
         }
     }
 
-    [TestCase(0f)]
-    [TestCase(-1f)]
-    [TestCase(float.NaN)]
-    [TestCase(float.PositiveInfinity)]
-    [TestCase(float.NegativeInfinity)]
-    public void InvalidDescentSpeedIsRejected(float speed)
+    private static IEnumerable InvalidGlideSettings()
     {
-        Set("glideDescentSpeed", speed);
-        LogAssert.Expect(LogType.Error, new Regex("PlayerMovement:"));
+        foreach (string field in new[] { "glideTargetFootHeight", "glideHeightResponse", "glideVerticalAcceleration" })
+        foreach (float value in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+        foreach (bool awake in new[] { false, true })
+            yield return new TestCaseData(field, value, awake);
+        foreach (string field in new[] { "glideHeightResponse", "glideVerticalAcceleration" })
+        foreach (float value in new[] { 0f, -1f })
+        foreach (bool awake in new[] { false, true })
+            yield return new TestCaseData(field, value, awake);
+        foreach (bool awake in new[] { false, true })
+        {
+            yield return new TestCaseData("glideTargetFootHeight", -10f, awake);
+            yield return new TestCaseData("glideTargetFootHeight", -11f, awake);
+            yield return new TestCaseData("glideHeightResponse", float.MaxValue, awake);
+            yield return new TestCaseData("glideHeightResponse", float.Epsilon, awake);
+            yield return new TestCaseData("glideVerticalAcceleration", 10.01f, awake);
+        }
+    }
+
+    [TestCaseSource(nameof(InvalidGlideSettings))]
+    public void InvalidGlideSettingIsRejectedAtAwakeAndOnValidate(string name, float value, bool awake)
+    {
+        if (!awake)
+        {
+            Set(name, value);
+            LogAssert.Expect(LogType.Error, new Regex("PlayerMovement:"));
+            movement.SendMessage("OnValidate");
+            Assert.That(movement.enabled, Is.False);
+            return;
+        }
+        player.SetActive(false);
+        var clone = Object.Instantiate(player);
+        try
+        {
+            var candidate = clone.GetComponent<PlayerMovement>();
+            Field(name).SetValue(candidate, value);
+            LogAssert.Expect(LogType.Error, new Regex("PlayerMovement:"));
+            clone.SetActive(true);
+            Assert.That(candidate.enabled, Is.False);
+        }
+        finally { Object.DestroyImmediate(clone); }
+    }
+
+    [TestCase(0f)]
+    [TestCase(-2f)]
+    public void SignedFiniteTargetAboveBoundaryIsValid(float height)
+    {
+        Set("glideTargetFootHeight", height);
         movement.SendMessage("OnValidate");
-        Assert.That(movement.enabled, Is.False);
+        Assert.That(movement.enabled, Is.True);
     }
 
     [Test]
@@ -212,20 +259,20 @@ public class GliderTests
             ResetOnFloor();
             MoveTo(start + Vector3.up * 8f);
             Press(Key.Space); Step();
-            Press(keys[i]); Step();
+            HoldGlide(keys[i]); Step();
             Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude,
                 Is.EqualTo(10f * Time.fixedDeltaTime).Within(0.001f));
             Step(44);
             var horizontal = Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up);
             Assert.That(horizontal.magnitude, Is.EqualTo(8f).Within(0.01f));
             Assert.That(Vector3.Dot(horizontal.normalized, directions[i].normalized), Is.GreaterThan(0.999f));
-            Press(Key.D);
+            HoldGlide(Key.D);
             movement.SendMessage("FixedUpdate");
             var expected = Vector3.MoveTowards(horizontal, Vector3.right * 8f,
                 (i == 3 ? 10f : 50f) * Time.fixedDeltaTime);
             Assert.That(Vector3.Distance(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up), expected), Is.LessThan(0.001f));
-            Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
-            Press(); Step(10);
+            Assert.That(body.useGravity, Is.False);
+            HoldGlide(); Step(10);
             Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.LessThan(0.001f));
             Assert.That(Gliding(), Is.True);
         }
@@ -242,8 +289,9 @@ public class GliderTests
             Assert.That(Gliding(), Is.True);
             // Stop on the very first solved collision, without another controller tick.
             int ticks = 0;
-            while (body.linearVelocity.y < -0.1f && ticks++ < 150) Step();
-            Assert.That(ticks, Is.LessThan(150));
+            while (Gliding() && ticks++ < 250) Step();
+            Assert.That(ticks, Is.LessThan(250), "Wait for actual support, not small vertical speed.");
+            Assert.That(Read("state").ToString(), Is.EqualTo("Grounded"));
             Assert.That(Gliding(), Is.False, "Landing must close before the next displayed frame.");
             Assert.That(visual.activeSelf, Is.False);
             Assert.That(body.useGravity, Is.True);
@@ -278,7 +326,7 @@ public class GliderTests
             Step(3);
             Assert.That(Gliding(), Is.True);
             Assert.That(Read("state").ToString(), Is.EqualTo("Gliding"));
-            Assert.That(body.position.y, Is.LessThan(start.y + 2f));
+            Assert.That(body.useGravity, Is.False);
         }
     }
 
@@ -321,13 +369,13 @@ public class GliderTests
     [TestCase("focus")]
     [TestCase("component")]
     [TestCase("object")]
-    public void LifecyclePreservesGlideButDropsPendingInputFiveTimes(string boundary)
+    public void LifecycleClosesGliderAndRequiresFreshPressFiveTimes(string boundary)
     {
         for (int sample = 0; sample < 5; sample++)
         {
             ResetOnFloor();
             MoveTo(start + Vector3.up * 5f);
-            Press(Key.Space); Press();
+            Press(Key.Space);
             Assert.That((bool)Read("glideRequested"), Is.True);
             Suspend(boundary);
             Assert.That((bool)Read("glideRequested"), Is.False);
@@ -338,20 +386,30 @@ public class GliderTests
             Assert.That(Gliding(), Is.True);
             Press(Key.Space, Key.W); Step(3);
             float before = body.position.y;
+            float velocityBefore = body.linearVelocity.y;
             Suspend(boundary);
-            Assert.That(Gliding(), Is.True);
+            Assert.That(Gliding(), Is.False);
+            Assert.That(visual.activeSelf, Is.False);
+            Assert.That(body.useGravity, Is.True);
             // Deactivating the entire GameObject removes its body from simulation;
             // Unity may clear velocity. Only the resumed flight is prescribed there.
-            if (boundary != "object") Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
+            if (boundary != "object") Assert.That(body.linearVelocity.y, Is.EqualTo(velocityBefore));
             Step(3);
             if (boundary != "object") Assert.That(body.position.y, Is.LessThan(before));
+            else Assert.That(player.transform.position.y, Is.EqualTo(before));
+            if (boundary != "object") Assert.That(body.linearVelocity.y, Is.LessThan(velocityBefore));
             Resume(boundary);
             Step(3);
-            Assert.That(Gliding(), Is.True);
-            Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
+            Assert.That(Gliding(), Is.False, "Held Space across input reset must not auto-redeploy");
+            Assert.That((float)Read("glideTargetFootHeight"), Is.Zero);
             Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
-            Press(); Press(Key.D); Step();
+            Press(); Press(Key.Space, Key.D); Step();
+            Assert.That(Gliding(), Is.True);
             Assert.That(body.linearVelocity.x, Is.GreaterThan(0f));
+            // Move outside support, then returning from any lifecycle boundary must converge.
+            MoveTo(new Vector3(520f, 4f, 500f)); Press(Key.Space); Step(250);
+            Assert.That(body.position.y - 1f, Is.EqualTo(0f).Within(0.1f));
+            Assert.That(Gliding(), Is.True);
         }
     }
 
@@ -362,6 +420,7 @@ public class GliderTests
         {
             ResetOnFloor(); MoveTo(start + Vector3.up * 2f);
             Press(Key.Space); Step();
+            body.linearVelocity = Vector3.down * 2f;
             movement.enabled = false;
             Step(80); // Physics continues, but disabled callbacks must not retain old contacts.
             Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
@@ -374,6 +433,7 @@ public class GliderTests
 
             MoveTo(new Vector3(520f, -8f, 500f));
             Press(Key.Space); Step();
+            body.linearVelocity = Vector3.down * 2f;
             movement.enabled = false; Step(40);
             Assert.That(body.position.y - 1f, Is.LessThan(-10f));
             movement.enabled = true;
@@ -433,22 +493,6 @@ public class GliderTests
         InputSystem.Update();
     }
 
-    private float MeasureDescent(bool deploy)
-    {
-        ResetOnFloor();
-        MoveTo(new Vector3(520f, 3f, 500f));
-        if (deploy) { Press(Key.Space); Press(); }
-        int ticks = 0;
-        while (body.position.y - 1f > -4f && ticks < 300)
-        {
-            Step(); ticks++;
-            if (deploy) Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
-        }
-        Assert.That(ticks, Is.LessThan(300));
-        Assert.That(movement.IsEliminated, Is.False);
-        return ticks * Time.fixedDeltaTime;
-    }
-
     private void ResetOnFloor()
     {
         if (movement.IsEliminated)
@@ -480,6 +524,12 @@ public class GliderTests
     {
         InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys));
         InputSystem.Update();
+    }
+
+    private void HoldGlide(params Key[] movementKeys)
+    {
+        var held = new Key[movementKeys.Length + 1];
+        movementKeys.CopyTo(held, 0); held[held.Length - 1] = Key.Space; Press(held);
     }
 
     private void MoveTo(Vector3 position)

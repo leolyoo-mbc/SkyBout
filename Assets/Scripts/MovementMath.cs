@@ -26,4 +26,14 @@ internal static class MovementMath
         // 물리 적분으로 줄어드는 반 스텝 분량의 높이를 초기 속도에서 보정한다.
         return Mathf.Sqrt(2f * gravity * jumpHeight) + gravity * deltaTime * 0.5f;
     }
+
+    internal static float CalculateGlideVerticalVelocity(float currentFootHeight, float targetFootHeight,
+        float currentVerticalVelocity, float response, float maxAcceleration, float deltaTime)
+    {
+        // 현재 물리 속도를 감쇠한다. 전개·충돌 이후에도 별도 속도 캐시나 위치 스냅은 없다.
+        float error = targetFootHeight - currentFootHeight;
+        float acceleration = Mathf.Clamp(response * response * error - 2f * response * currentVerticalVelocity,
+            -maxAcceleration, maxAcceleration);
+        return currentVerticalVelocity + acceleration * deltaTime;
+    }
 }

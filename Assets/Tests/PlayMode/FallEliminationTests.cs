@@ -172,9 +172,17 @@ public class FallEliminationTests
             for (int i = 0; i < 10; i++)
             {
                 Press(i % 2 == 0 ? new[] { Key.Space } : new Key[0]);
+                float previousVerticalSpeed = body.linearVelocity.y;
                 Step();
-                Assert.That(movement.IsGliding, Is.True);
-                Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f), "Space deploys without adding an upward jump or toggling closed.");
+                Assert.That(movement.IsGliding, Is.EqualTo(i % 2 == 0));
+                if (i % 2 == 0)
+                    Assert.That(Mathf.Abs(body.linearVelocity.y - previousVerticalSpeed), Is.LessThanOrEqualTo(0.20001f),
+                        "Space preserves entry velocity with bounded correction, never an extra jump.");
+                else
+                {
+                    Assert.That(body.useGravity, Is.True);
+                    Assert.That(body.linearVelocity.y, Is.EqualTo(previousVerticalSpeed + Physics.gravity.y * Time.fixedDeltaTime).Within(0.001f));
+                }
                 Assert.That(Grounded(), Is.False);
             }
         }
@@ -230,6 +238,7 @@ public class FallEliminationTests
         ground.transform.position += Vector3.up * 20f;
         Teleport(start + Vector3.up * 20f);
         SetField("fallDeathHeight", height);
+        SetField("glideTargetFootHeight", 20f); // Keep the new flight target above the raised death boundary.
         movement.SendMessage("OnValidate");
         Assert.That(movement.enabled, Is.True);
         Step(5);

@@ -283,6 +283,11 @@ public class JumpTests
                     "A fresh airborne press now requests a glider, not another jump.");
             }
             Step(160);
+            if (phase != "hold")
+            {
+                // The 2m flight target is above the floor: release before testing the next ground jump.
+                Press(); Step(160);
+            }
             Assert.That(movement.IsGliding, Is.False, "Gliding must end at actual landing; holding cannot re-deploy.");
             Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
             Assert.That(Grounded(), Is.True);
@@ -457,7 +462,8 @@ public class JumpTests
         for (int i = 0; i < 3; i++) yield return new WaitForFixedUpdate();
         Assert.That(actualBody.linearVelocity.y, Is.LessThan(0f));
         Assert.That(actualPlayer.IsGliding, Is.True);
-        Assert.That(actualBody.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
+        Assert.That(actualBody.useGravity, Is.False);
+        Assert.That((float)Field("glideTargetFootHeight").GetValue(actualPlayer), Is.EqualTo(2f));
         float yVelocity = actualBody.linearVelocity.y;
         actualPlayer.SendMessage("OnApplicationFocus", false);
         Assert.That(actualBody.linearVelocity.y, Is.EqualTo(yVelocity));

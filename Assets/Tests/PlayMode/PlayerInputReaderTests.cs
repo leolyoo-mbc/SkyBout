@@ -69,6 +69,23 @@ public class PlayerInputReaderTests
     }
 
     [Test]
+    public void JumpHoldReleaseAndFocusResetDoNotLatchOrAutoRearm()
+    {
+        int releases = 0;
+        reader.JumpReleased += () => releases++;
+        Press(Key.Space); Assert.That(reader.IsJumpHeld, Is.True);
+        Press(Key.W); Assert.That(reader.IsJumpHeld, Is.False);
+        Assert.That(releases, Is.EqualTo(1));
+        Press(Key.Space); Assert.That(reader.IsJumpHeld, Is.True);
+        reader.SetFocus(false); Assert.That(reader.IsJumpHeld, Is.False);
+        reader.SetFocus(true); InputSystem.Update();
+        Assert.That(reader.IsJumpHeld, Is.False, "Held Space across focus must not rearm");
+        Press(); Press(Key.Space); Assert.That(reader.IsJumpHeld, Is.True);
+        reader.Disable(); Assert.That(reader.IsJumpHeld, Is.False);
+        reader.Enable(true); InputSystem.Update(); Assert.That(reader.IsJumpHeld, Is.False);
+    }
+
+    [Test]
     public void ShortPressSurvivesReleaseAndHoldingDoesNotRepeat()
     {
         InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space));

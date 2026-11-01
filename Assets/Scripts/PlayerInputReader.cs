@@ -10,13 +10,16 @@ internal sealed class PlayerInputReader
     private bool eliminated;
     private bool waitingForMoveKeyRelease;
     private bool jumpReleaseConfirmed;
+    private bool jumpHeld;
     private bool restartReleaseConfirmed;
 
     internal event Action JumpPressed;
+    internal event Action JumpReleased;
     internal event Action RestartPressed;
     internal Vector2 Move { get; private set; }
     internal bool HasFocus { get; private set; }
     internal bool CanMove => enabled && HasFocus && !eliminated && !waitingForMoveKeyRelease;
+    internal bool IsJumpHeld => enabled && HasFocus && !eliminated && jumpHeld && actions.Player.Jump.IsPressed();
 
     internal PlayerInputReader(PlayerInputActions actions) => this.actions = actions;
 
@@ -30,6 +33,7 @@ internal sealed class PlayerInputReader
         actions.Player.Move.performed += HandleMove;
         actions.Player.Move.canceled += HandleMove;
         actions.Player.Jump.performed += HandleJump;
+        actions.Player.Jump.canceled += HandleJumpReleased;
         actions.Player.Restart.performed += HandleRestart;
         InputSystem.onAfterUpdate += UpdateReleasedKeys;
         actions.Player.Enable();
@@ -41,6 +45,7 @@ internal sealed class PlayerInputReader
         actions.Player.Move.performed -= HandleMove;
         actions.Player.Move.canceled -= HandleMove;
         actions.Player.Jump.performed -= HandleJump;
+        actions.Player.Jump.canceled -= HandleJumpReleased;
         actions.Player.Restart.performed -= HandleRestart;
         InputSystem.onAfterUpdate -= UpdateReleasedKeys;
         actions.Player.Disable();
@@ -57,6 +62,7 @@ internal sealed class PlayerInputReader
     {
         eliminated = value;
         jumpReleaseConfirmed = false;
+        jumpHeld = false;
         Move = Vector2.zero;
         if (!value)
         {
@@ -73,7 +79,9 @@ internal sealed class PlayerInputReader
         Move = Vector2.zero;
         waitingForMoveKeyRelease = true;
         jumpReleaseConfirmed = false;
+        jumpHeld = false;
         restartReleaseConfirmed = false;
+        JumpReleased?.Invoke(); // 초점·비활성 경계에서도 유지 입력을 남기지 않는다.
     }
 
     private void HandleMove(InputAction.CallbackContext context)
@@ -86,7 +94,16 @@ internal sealed class PlayerInputReader
     private void HandleJump(InputAction.CallbackContext context)
     {
         if (enabled && HasFocus && !eliminated && jumpReleaseConfirmed)
+        {
+            jumpHeld = true;
             JumpPressed?.Invoke();
+        }
+    }
+
+    private void HandleJumpReleased(InputAction.CallbackContext context)
+    {
+        jumpHeld = false;
+        JumpReleased?.Invoke();
     }
 
     private void HandleRestart(InputAction.CallbackContext context)

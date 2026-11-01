@@ -21,8 +21,12 @@ public class PlayerMovement : MonoBehaviour
     private float jumpHeight = 2f;
     [SerializeField, Tooltip("발 위치가 이 월드 Y 높이보다 낮으면 탈락")]
     private float fallDeathHeight = -10f;
-    [SerializeField, Min(0.001f), Tooltip("글라이딩 중 일정 하강 속도 (m/s)")]
-    private float glideDescentSpeed = 2f;
+    [SerializeField, Tooltip("글라이딩 목표 발 위치의 월드 Y 높이 (m). 낙사 높이보다 높아야 함")]
+    private float glideTargetFootHeight = 2f;
+    [SerializeField, Min(0.001f), Tooltip("목표 높이 접근과 감쇠의 응답 계수 (1/s)")]
+    private float glideHeightResponse = 3f;
+    [SerializeField, Range(0.001f, 10f), Tooltip("글라이딩 수직 보정의 최대 가속도 (m/s²)")]
+    private float glideVerticalAcceleration = 10f;
 
     // Inspector 참조: 발 위치·지면 레이어·카메라
     [FormerlySerializedAs("groundCheckTransform")]
@@ -66,6 +70,7 @@ public class PlayerMovement : MonoBehaviour
         playerInput.bindingMask = InputBinding.MaskByGroup("Keyboard&Mouse");
         inputReader = new PlayerInputReader(playerInput);
         inputReader.JumpPressed += RequestJump;
+        inputReader.JumpReleased += CancelGlide;
         inputReader.RestartPressed += RequestRestart;
         startingPosition = playerRigidbody.position;
         startingRotation = playerRigidbody.rotation;
@@ -101,6 +106,7 @@ public class PlayerMovement : MonoBehaviour
         {
             inputReader.Disable();
             inputReader.JumpPressed -= RequestJump;
+            inputReader.JumpReleased -= CancelGlide;
             inputReader.RestartPressed -= RequestRestart;
         }
         if (playerInput != null)
@@ -141,6 +147,8 @@ public class PlayerMovement : MonoBehaviour
         UpdateGroundedState();
         ProcessJumpRequest();
         ProcessGlideRequest();
+        if (IsGliding && !inputReader.IsJumpHeld)
+            CancelGlide();
         if (IsGliding)
             ApplyGlideVelocity();
 
@@ -171,6 +179,13 @@ public class PlayerMovement : MonoBehaviour
     {
         if (isActiveAndEnabled && IsEliminated)
             restartRequested = true;
+    }
+
+    private void CancelGlide()
+    {
+        glideRequested = false;
+        if (IsGliding)
+            SetState(PlayerState.Airborne);
     }
 
     private void ResetRequests()
@@ -238,14 +253,16 @@ public class PlayerMovement : MonoBehaviour
     {
         bool shouldGlide = glideRequested;
         glideRequested = false;
-        if (shouldGlide && inputReader.HasFocus && state == PlayerState.Airborne)
+        if (shouldGlide && inputReader.IsJumpHeld && state == PlayerState.Airborne)
             SetState(PlayerState.Gliding);
     }
 
     private void ApplyGlideVelocity()
     {
+        float verticalVelocity = MovementMath.CalculateGlideVerticalVelocity(FootPosition.y, glideTargetFootHeight,
+            playerRigidbody.linearVelocity.y, glideHeightResponse, glideVerticalAcceleration, Time.fixedDeltaTime);
         playerRigidbody.linearVelocity = new Vector3(playerRigidbody.linearVelocity.x,
-            -glideDescentSpeed, playerRigidbody.linearVelocity.z);
+            verticalVelocity, playerRigidbody.linearVelocity.z);
     }
 
     private void SetState(PlayerState nextState)
@@ -319,16 +336,21 @@ public class PlayerMovement : MonoBehaviour
             && (groundLayer.value & (1 << gameObject.layer)) == 0;
         bool movementSettingsAreValid = IsFinitePositive(maxHorizontalSpeed)
             && IsFinitePositive(acceleration) && IsFinitePositive(deceleration) && IsFinitePositive(turnAcceleration)
-            && IsFinitePositive(feetMarkerRadius) && IsFinitePositive(jumpHeight) && IsFinitePositive(glideDescentSpeed)
+            && IsFinitePositive(feetMarkerRadius) && IsFinitePositive(jumpHeight)
             && !float.IsNaN(fallDeathHeight) && !float.IsInfinity(fallDeathHeight);
+        bool glideSettingsAreValid = !float.IsNaN(glideTargetFootHeight) && !float.IsInfinity(glideTargetFootHeight)
+            && glideTargetFootHeight > fallDeathHeight
+            && IsFinitePositive(glideHeightResponse) && IsFinitePositive(glideHeightResponse * glideHeightResponse)
+            && IsFinitePositive(2f * glideHeightResponse)
+            && IsFinitePositive(glideVerticalAcceleration) && glideVerticalAcceleration <= 10f;
         bool physicsSettingsAreValid = playerRigidbody != null && !playerRigidbody.isKinematic
             && playerRigidbody.useGravity == !IsGliding && playerRigidbody.linearDamping == 0f
             && (playerRigidbody.constraints & RigidbodyConstraints.FreezePositionY) == 0
             && IsFinitePositive(-Physics.gravity.y) && Physics.gravity.x == 0f && Physics.gravity.z == 0f;
 
-        if (playerInput != null && groundIsConfigured && movementSettingsAreValid && physicsSettingsAreValid)
+        if (playerInput != null && groundIsConfigured && movementSettingsAreValid && glideSettingsAreValid && physicsSettingsAreValid)
             return;
-        Debug.LogError("PlayerMovement: check input actions, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump/glide values plus a finite fall death height.", this);
+        Debug.LogError("PlayerMovement: check input actions, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity, finite positive movement/jump values, finite target foot height above fall death height, positive finite glide response (including squared/doubled values), and glide acceleration in (0, 10].", this);
         enabled = false;
     }
 
