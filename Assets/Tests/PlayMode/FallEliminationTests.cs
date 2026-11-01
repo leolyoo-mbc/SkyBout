@@ -73,10 +73,10 @@ public class FallEliminationTests
         foot.SetParent(player.transform, false);
         foot.localPosition = Vector3.down;
         movement = player.AddComponent<PlayerMovement>();
-        SetField("groundCheckTransform", foot);
+        SetField("feetTransform", foot);
         SetField("groundLayer", (LayerMask)(1 << ground.layer));
         player.SetActive(true);
-        actions = (PlayerInputActions)Field("actions").GetValue(movement);
+        actions = (PlayerInputActions)Field("playerInput").GetValue(movement);
         actions.devices = new InputDevice[] { keyboard, mouse };
         movement.SendMessage("OnApplicationFocus", true);
         Physics.SyncTransforms();
@@ -244,14 +244,13 @@ public class FallEliminationTests
         {
             CreatePlayer();
             Press(Key.D, Key.Space);
-            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.True);
+            Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.True);
             Teleport(new Vector3(220f, -9.01f, 200f));
             body.linearVelocity = new Vector3(8f, -2f, 8f);
             movement.SendMessage("FixedUpdate");
             Assert.That(Eliminated(), Is.True);
             Assert.That(Grounded(), Is.False);
-            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
-            Assert.That(((System.Collections.Generic.HashSet<Collider>)Field("supportingColliders").GetValue(movement)).Count, Is.Zero);
+            Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.False);
             Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
             Assert.That(body.linearVelocity.y, Is.EqualTo(-2f), "Elimination does not cancel gravity velocity.");
 
@@ -263,7 +262,7 @@ public class FallEliminationTests
                 Step();
                 Assert.That(Eliminated(), Is.True);
                 Assert.That(Grounded(), Is.False);
-                Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+                Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.False);
                 Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
                 Assert.That(body.linearVelocity.y, Is.LessThanOrEqualTo(0.1f));
             }
@@ -275,7 +274,7 @@ public class FallEliminationTests
             Press(); Press(Key.Space); Step(5);
             Assert.That(Eliminated(), Is.True);
             Assert.That(Grounded(), Is.False);
-            Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+            Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.False);
         }
         CreatePlayer();
         Assert.That(Eliminated(), Is.False, "A new instance starts alive, not a reset of the old one.");
@@ -286,12 +285,12 @@ public class FallEliminationTests
     {
         Press(Key.Space);
         Assert.That(Grounded(), Is.True);
-        Assert.That((bool)Field("pendingJump").GetValue(movement), Is.True);
+        Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.True);
         SetField("fallDeathHeight", 0.1f);
         movement.SendMessage("FixedUpdate");
         Assert.That(Eliminated(), Is.True);
         Assert.That(Grounded(), Is.False);
-        Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+        Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.False);
         CreatePlayer();
         movement.SendMessage("OnApplicationFocus", false);
         Teleport(new Vector3(220f, -10f, 200f));
@@ -325,7 +324,7 @@ public class FallEliminationTests
             Assert.That(actual, Is.Not.Null);
             Assert.That(camera, Is.Not.Null);
             var actualBody = actual.GetComponent<Rigidbody>();
-            var actualInput = (PlayerInputActions)Field("actions").GetValue(actual);
+            var actualInput = (PlayerInputActions)Field("playerInput").GetValue(actual);
             actualInput.devices = new InputDevice[] { keyboard, mouse };
             actual.SendMessage("OnApplicationFocus", true);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
@@ -376,7 +375,7 @@ public class FallEliminationTests
             yield return new WaitForFixedUpdate();
             Assert.That(actual.IsEliminated, Is.True);
             Assert.That(Vector3.ProjectOnPlane(actualBody.linearVelocity, Vector3.up).magnitude, Is.Zero);
-            Assert.That((bool)Field("pendingJump").GetValue(actual), Is.False);
+            Assert.That((bool)Field("jumpRequested").GetValue(actual), Is.False);
             yield return SceneManager.UnloadSceneAsync(integrationScene);
         }
 #else

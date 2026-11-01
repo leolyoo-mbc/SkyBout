@@ -1,12 +1,16 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerMovement : MonoBehaviour
 {
-    [SerializeField, Min(0.001f), Tooltip("지상 최고 수평 속도 (m/s)")]
-    private float maxSpeed = 8f;
+    private enum PlayerState { Grounded, Airborne, Eliminated }
+
+    // Inspector 설정: 이동·점프·낙사
+    [FormerlySerializedAs("maxSpeed")]
+    [SerializeField, Min(0.001f), Tooltip("지상·공중 공통 최고 수평 속도 (m/s)")]
+    private float maxHorizontalSpeed = 8f;
     [SerializeField, Min(0.001f), Tooltip("출발과 직진 가속도 (m/s²)")]
     private float acceleration = 10f;
     [SerializeField, Min(0.001f), Tooltip("정지와 초과 속도 감속도 (m/s²)")]
@@ -17,405 +21,277 @@ public class PlayerMovement : MonoBehaviour
     private float jumpHeight = 2f;
     [SerializeField, Tooltip("발 위치가 이 월드 Y 높이보다 낮으면 탈락")]
     private float fallDeathHeight = -10f;
-    [SerializeField] private Transform groundCheckTransform;
-    [SerializeField, Min(0.001f)] private float groundCheckRadius = 0.2f;
+
+    // Inspector 참조: 발 위치·지면 레이어·카메라
+    [FormerlySerializedAs("groundCheckTransform")]
+    [SerializeField, Tooltip("캐릭터의 발바닥 위치")]
+    private Transform feetTransform;
+    [FormerlySerializedAs("groundCheckRadius")]
+    [SerializeField, Min(0.001f), Tooltip("발 위치를 표시하는 디버그 구의 반경. 접지 판정에는 사용하지 않음")]
+    private float feetMarkerRadius = 0.2f;
     [SerializeField] private LayerMask groundLayer;
-
-    private readonly ContactPoint[] contactBuffer = new ContactPoint[16];
-    private readonly HashSet<Collider> supportingColliders = new HashSet<Collider>();
-    private const float SupportTolerance = 0.03f;
-    private const float MinSupportNormal = 0.7f;
-    private bool reportedContactOverflow;
-
-    private enum PlayerState { Grounded, Airborne, Eliminated }
-
-    private Rigidbody body;
-    private PlayerInputActions actions;
-    private Vector2 input;
-    private PlayerState state = PlayerState.Airborne;
-    private bool focused;
-    private bool waitingForNeutral;
-    private bool pendingJump;
-    private bool jumpHeld;
-    private bool jumpReadyAfterRelease;
-    private GUIStyle eliminationStyle;
     [SerializeField] private TopDownCameraFollow cameraFollow;
-    private Vector3 startPosition;
-    private Quaternion startRotation;
-    private bool pendingRestart;
-    private bool restartHeld;
-    private bool restartReadyAfterRelease;
+
+    // 컴포넌트 참조와 현재 지상·공중·탈락 상태
+    private Rigidbody playerRigidbody;
+    private PlayerInputActions playerInput;
+    private PlayerInputReader inputReader;
+    private readonly GroundSupport groundSupport = new GroundSupport();
+    private readonly PlayerEliminationOverlay eliminationOverlay = new PlayerEliminationOverlay();
+    private PlayerState state = PlayerState.Airborne;
+
+    // 입력 시점에 허용된 요청을 다음 물리 갱신에서 한 번만 실행한다.
+    private bool jumpRequested;
+    private bool restartRequested;
+
+    // 재시작할 최초 자세
+    private Vector3 startingPosition;
+    private Quaternion startingRotation;
 
     public bool IsEliminated => state == PlayerState.Eliminated;
+    private Vector3 FootPosition => playerRigidbody.position + (feetTransform.position - transform.position);
 
-    private void Awake()
+    // ── Unity 생명주기와 물리 갱신 순서 ──
+
+    private void Awake() // 생성 시 참조와 시작 자세를 준비한다.
     {
-        body = GetComponent<Rigidbody>();
-        actions = new PlayerInputActions();
-        actions.bindingMask = InputBinding.MaskByGroup("Keyboard&Mouse");
-        startPosition = body.position;
-        startRotation = body.rotation;
+        playerRigidbody = GetComponent<Rigidbody>();
+        playerInput = new PlayerInputActions();
+        playerInput.bindingMask = InputBinding.MaskByGroup("Keyboard&Mouse");
+        inputReader = new PlayerInputReader(playerInput);
+        inputReader.JumpPressed += RequestJump;
+        inputReader.RestartPressed += RequestRestart;
+        startingPosition = playerRigidbody.position;
+        startingRotation = playerRigidbody.rotation;
         ValidateSettings();
     }
 
-    private void OnEnable()
+    private void OnEnable() // 활성화 시 입력을 연결한다.
     {
-        focused = Application.isFocused;
-        waitingForNeutral = true;
-        input = Vector2.zero;
-        ResetJumpInput();
-        ResetRestartInput();
-        if (body != null && !body.isKinematic)
-            body.WakeUp(); // Rebuild support callbacks after re-enabling a sleeping player.
-        if (actions == null)
-            return;
-        actions.bindingMask = InputBinding.MaskByGroup("Keyboard&Mouse");
-        SubscribeInput();
-        actions.Player.Enable();
+        ResetRequests();
+        if (playerRigidbody != null && !playerRigidbody.isKinematic)
+            playerRigidbody.WakeUp(); // 재활성화된 플레이어의 지면 접촉 콜백을 다시 받는다.
+        inputReader?.Enable(Application.isFocused);
     }
 
-    private void OnDisable()
+    private void OnDisable() // 비활성화 시 입력과 지면 접촉 정보를 정리한다.
     {
-        UnsubscribeInput();
-        if (actions != null)
-            actions.Player.Disable();
-        waitingForNeutral = true;
-        supportingColliders.Clear();
+        inputReader?.Disable();
+        groundSupport.Clear();
         if (state != PlayerState.Eliminated)
             state = PlayerState.Airborne;
-        ResetJumpInput();
-        ResetRestartInput();
+        ResetRequests();
         StopHorizontalMovement();
     }
 
-    private void OnDestroy()
+    private void OnDestroy() // 삭제 시 입력 자산을 해제한다.
     {
-        UnsubscribeInput();
-        if (actions != null)
+        if (inputReader != null)
         {
-            actions.Disable();
-            actions.Dispose();
-            actions = null;
+            inputReader.Disable();
+            inputReader.JumpPressed -= RequestJump;
+            inputReader.RestartPressed -= RequestRestart;
+        }
+        if (playerInput != null)
+        {
+            playerInput.Disable();
+            playerInput.Dispose();
+            playerInput = null;
         }
     }
 
-    private void SubscribeInput()
+    private void OnApplicationFocus(bool hasFocus) // 창 초점이 바뀌면 이전 입력을 버린다.
     {
-        if (actions == null)
-            return;
-        actions.Player.Move.performed += OnMovePerformed;
-        actions.Player.Move.canceled += OnMoveCanceled;
-        actions.Player.Jump.performed += OnJumpPerformed;
-        actions.Player.Jump.canceled += OnJumpCanceled;
-        actions.Player.Restart.performed += OnRestartPerformed;
-        actions.Player.Restart.canceled += OnRestartCanceled;
-        InputSystem.onAfterUpdate += CheckForNeutralInput;
+        inputReader?.SetFocus(hasFocus);
+        ResetRequests();
+        StopHorizontalMovement();
     }
 
-    private void UnsubscribeInput()
+    private void FixedUpdate() // 일정한 물리 간격으로 플레이어 동작을 처리한다.
     {
-        if (actions != null)
+        // 새로 낙사한 틱에는 재시작·점프·이동을 처리하지 않는다.
+        if (!IsEliminated && FootPosition.y < fallDeathHeight)
         {
-            actions.Player.Move.performed -= OnMovePerformed;
-            actions.Player.Move.canceled -= OnMoveCanceled;
-            actions.Player.Jump.performed -= OnJumpPerformed;
-            actions.Player.Jump.canceled -= OnJumpCanceled;
-            actions.Player.Restart.performed -= OnRestartPerformed;
-            actions.Player.Restart.canceled -= OnRestartCanceled;
+            EliminatePlayer();
+            return;
         }
-        InputSystem.onAfterUpdate -= CheckForNeutralInput;
-    }
 
-    private void OnMovePerformed(InputAction.CallbackContext context)
-    {
-        input = isActiveAndEnabled && state != PlayerState.Eliminated && focused && !waitingForNeutral
-            ? Vector2.ClampMagnitude(context.ReadValue<Vector2>(), 1f)
-            : Vector2.zero;
-    }
-
-    private void OnMoveCanceled(InputAction.CallbackContext context)
-    {
-        input = Vector2.zero;
-    }
-
-    private void OnJumpPerformed(InputAction.CallbackContext context) => HandleJump(true);
-
-    private void OnJumpCanceled(InputAction.CallbackContext context) => HandleJump(false);
-
-    private void HandleJump(bool pressed)
-    {
-        if (state == PlayerState.Eliminated)
-            return;
-        bool newPress = pressed && !jumpHeld;
-        jumpHeld = pressed;
-        if (!isActiveAndEnabled || !focused)
-            return;
-        if (!pressed)
-            return;
-        if (newPress && jumpReadyAfterRelease && HasGroundSupport())
-            pendingJump = true;
-    }
-
-    private void OnRestartPerformed(InputAction.CallbackContext context) => HandleRestart(true);
-
-    private void OnRestartCanceled(InputAction.CallbackContext context) => HandleRestart(false);
-
-    private void HandleRestart(bool pressed)
-    {
-        bool newPress = pressed && !restartHeld;
-        restartHeld = pressed;
-        if (newPress && restartReadyAfterRelease && isActiveAndEnabled && focused && state == PlayerState.Eliminated)
+        // 탈락 상태에서는 초점이 있을 때 새 재시작 요청만 실행한다.
+        if (IsEliminated)
         {
-            pendingRestart = true;
-            restartReadyAfterRelease = false;
+            if (restartRequested && inputReader.HasFocus)
+                RestartAtStartingPosition();
+            else
+                StopHorizontalMovement();
+
+            return;
         }
+
+        UpdateGroundedState();
+        ProcessJumpRequest();
+
+        // 초점·이동 키 해제 대기는 수평 이동만 막는다. 공중 물리는 계속된다.
+        if (!inputReader.CanMove)
+        {
+            StopHorizontalMovement();
+            return;
+        }
+
+        UpdateHorizontalVelocity();
     }
 
-    private void ResetRestartInput()
+    // ── 입력 시점의 게임 규칙 확인 ──
+
+    private void RequestJump()
     {
-        pendingRestart = false;
-        restartHeld = false;
-        restartReadyAfterRelease = false;
+        // 공중에서 누른 입력이 착지 후 실행되지 않도록 입력 시점에도 접지를 확인한다.
+        if (isActiveAndEnabled && !IsEliminated && IsStandingOnGround())
+            jumpRequested = true;
     }
 
-    private void Restart()
+    private void RequestRestart()
     {
-        pendingRestart = false;
-        body.position = startPosition;
-        body.rotation = startRotation;
-        transform.SetPositionAndRotation(startPosition, startRotation);
-        body.linearVelocity = Vector3.zero;
-        body.angularVelocity = Vector3.zero;
-        supportingColliders.Clear();
+        if (isActiveAndEnabled && IsEliminated)
+            restartRequested = true;
+    }
+
+    private void ResetRequests()
+    {
+        jumpRequested = false;
+        restartRequested = false;
+    }
+
+    // ── 탈락과 시작 위치 복귀 ──
+
+    private void EliminatePlayer()
+    {
+        state = PlayerState.Eliminated;
+        ResetRequests();
+        groundSupport.Clear();
+        inputReader.SetEliminated(true);
+        StopHorizontalMovement();
+    }
+
+    private void RestartAtStartingPosition()
+    {
+        ResetRequests();
+        playerRigidbody.position = startingPosition;
+        playerRigidbody.rotation = startingRotation;
+        transform.SetPositionAndRotation(startingPosition, startingRotation);
+        playerRigidbody.linearVelocity = Vector3.zero;
+        playerRigidbody.angularVelocity = Vector3.zero;
+        groundSupport.Clear();
         state = PlayerState.Airborne;
-        ResetJumpInput();
-        waitingForNeutral = false;
-        input = Vector2.ClampMagnitude(actions.Player.Move.ReadValue<Vector2>(), 1f);
-        body.WakeUp();
+        inputReader.SetEliminated(false);
+        playerRigidbody.WakeUp();
         if (cameraFollow != null)
             cameraFollow.SnapToTarget();
     }
 
-    private void ResetJumpInput()
+    // ── 생존 중 접지·점프·수평 속도 갱신 ──
+
+    private void UpdateGroundedState()
     {
-        pendingJump = false;
-        jumpHeld = false;
-        jumpReadyAfterRelease = false;
+        state = IsStandingOnGround() ? PlayerState.Grounded : PlayerState.Airborne;
     }
 
-    private void OnApplicationFocus(bool hasFocus)
+    private void ProcessJumpRequest()
     {
-        focused = hasFocus;
-        waitingForNeutral = true;
-        ResetJumpInput();
-        ResetRestartInput();
-        StopHorizontalMovement();
+        bool shouldJump = jumpRequested;
+
+        // 실행할 수 없는 요청도 이번 물리 갱신에서 버린다.
+        jumpRequested = false;
+
+        if (!shouldJump || !inputReader.HasFocus || state != PlayerState.Grounded)
+            return;
+
+        ApplyJumpVelocity();
+        state = PlayerState.Airborne;
     }
 
-    private void CheckForNeutralInput()
+    private void ApplyJumpVelocity()
     {
-        if (!focused || actions == null)
-            return;
-        var restart = actions.Player.Restart;
-        if (restart.enabled)
-        {
-            bool actuated = false;
-            foreach (var control in restart.controls)
-                actuated |= control.IsActuated();
-            if (!actuated)
-            {
-                restartHeld = false;
-                restartReadyAfterRelease = true;
-            }
-        }
-        if (state == PlayerState.Eliminated)
-            return;
-        var jump = actions.Player.Jump;
-        // Button release is observed here as well, independent of callback delivery.
-        if (jump.enabled)
-        {
-            bool actuated = false;
-            foreach (var control in jump.controls)
-                actuated |= control.IsActuated();
-            if (!actuated)
-            {
-                jumpHeld = false;
-                jumpReadyAfterRelease = true;
-            }
-        }
-        if (!waitingForNeutral)
-            return;
-        var move = actions.Player.Move;
-        if (!move.enabled)
-            return;
-        // Check after device synchronization, including opposing keys whose vector cancels out.
-        foreach (var control in move.controls)
-            if (control.IsActuated())
-                return;
-        waitingForNeutral = false;
+        float jumpSpeed = MovementMath.CalculateJumpSpeed(jumpHeight, -Physics.gravity.y, Time.fixedDeltaTime);
+        playerRigidbody.linearVelocity = new Vector3(playerRigidbody.linearVelocity.x, jumpSpeed, playerRigidbody.linearVelocity.z);
     }
 
-    private void FixedUpdate()
+    private void UpdateHorizontalVelocity()
     {
-        if (state != PlayerState.Eliminated && FootPosition.y < fallDeathHeight)
-        {
-            state = PlayerState.Eliminated;
-            pendingRestart = false;
-            supportingColliders.Clear();
-            ResetJumpInput();
-            StopHorizontalMovement();
-            return;
-        }
-        switch ((state, pendingRestart, focused))
-        {
-            case (PlayerState.Eliminated, true, true):
-                Restart();
-                return;
-            case (PlayerState.Eliminated, _, _):
-                StopHorizontalMovement();
-                return;
-        }
-        state = HasGroundSupport() ? PlayerState.Grounded : PlayerState.Airborne;
-        bool launch = pendingJump;
-        pendingJump = false;
-        switch ((state, launch, focused))
-        {
-            case (PlayerState.Grounded, true, true):
-                // Compensate the half-step loss of semi-implicit gravity integration.
-                float gravity = -Physics.gravity.y;
-                float speed = Mathf.Sqrt(2f * gravity * jumpHeight) + gravity * Time.fixedDeltaTime * 0.5f;
-                body.linearVelocity = new Vector3(body.linearVelocity.x, speed, body.linearVelocity.z);
-                state = PlayerState.Airborne;
-                break;
-        }
-        if (!focused || waitingForNeutral)
-        {
-            StopHorizontalMovement();
-            return;
-        }
-
-        Vector3 current = new Vector3(body.linearVelocity.x, 0f, body.linearVelocity.z);
-        Vector3 direction = new Vector3(input.x, 0f, input.y);
-        Vector3 target = direction * maxSpeed;
-        float rate = direction switch
-        {
-            var value when value.sqrMagnitude < 0.0001f => deceleration,
-            var value when current.sqrMagnitude > 0.0001f
-                && Vector3.Dot(current.normalized, value.normalized) < 0.95f => turnAcceleration,
-            _ when current.magnitude > target.magnitude => deceleration,
-            _ => acceleration
-        };
-        Vector3 next = Vector3.MoveTowards(current, target, rate * Time.fixedDeltaTime);
-        body.linearVelocity = new Vector3(next.x, body.linearVelocity.y, next.z);
-    }
-
-    // Contact callbacks provide actual support, not merely a nearby collider.
-    private void OnCollisionEnter(Collision collision) => RefreshSupport(collision);
-    private void OnCollisionStay(Collision collision) => RefreshSupport(collision);
-    private void OnCollisionExit(Collision collision) => supportingColliders.Remove(collision.collider);
-
-    private Vector3 FootPosition => body.position + (groundCheckTransform.position - transform.position);
-
-    private void RefreshSupport(Collision collision)
-    {
-        // Unity also delivers collision messages to disabled MonoBehaviours.
-        if (state == PlayerState.Eliminated || !isActiveAndEnabled || groundCheckTransform == null)
-            return;
-        supportingColliders.Remove(collision.collider);
-        if ((groundLayer.value & (1 << collision.gameObject.layer)) == 0)
-            return;
-        int count = collision.GetContacts(contactBuffer);
-        if (count == contactBuffer.Length && !reportedContactOverflow)
-        {
-            reportedContactOverflow = true;
-            Debug.LogError("PlayerMovement: ground contact buffer is full; review collider complexity.", this);
-        }
-        Vector3 foot = FootPosition;
-        for (int i = 0; i < count; i++)
-        {
-            ContactPoint contact = contactBuffer[i];
-            if (contact.normal.y >= MinSupportNormal && contact.separation <= SupportTolerance
-                && Mathf.Abs(contact.point.y - foot.y) <= SupportTolerance)
-            {
-                supportingColliders.Add(collision.collider);
-                return;
-            }
-        }
-    }
-
-    private bool HasGroundSupport()
-    {
-        if (state == PlayerState.Eliminated || body.linearVelocity.y > 0.1f || supportingColliders.Count == 0)
-            return false;
-        // Recheck current geometry: cached contacts alone must not grant coyote time.
-        Vector3 foot = FootPosition;
-        return Physics.Raycast(foot + Vector3.up * 0.05f, Vector3.down, out RaycastHit hit,
-            0.05f + SupportTolerance, groundLayer, QueryTriggerInteraction.Ignore)
-            && hit.normal.y >= MinSupportNormal && supportingColliders.Contains(hit.collider);
+        playerRigidbody.linearVelocity = MovementMath.CalculateVelocity(playerRigidbody.linearVelocity, inputReader.Move,
+            maxHorizontalSpeed, acceleration, deceleration, turnAcceleration, Time.fixedDeltaTime);
     }
 
     private void StopHorizontalMovement()
     {
-        input = Vector2.zero;
-        if (body != null && !body.isKinematic)
-            body.linearVelocity = new Vector3(0f, body.linearVelocity.y, 0f);
+        inputReader?.ClearMovement();
+        if (playerRigidbody != null && !playerRigidbody.isKinematic)
+            playerRigidbody.linearVelocity = new Vector3(0f, playerRigidbody.linearVelocity.y, 0f);
     }
 
-    private void OnValidate()
+    // ── 발밑 지면 접촉 수집과 현재 위치 재검사 ──
+
+    private void OnCollisionEnter(Collision collision) => UpdateGroundContacts(collision);
+    private void OnCollisionStay(Collision collision) => UpdateGroundContacts(collision);
+    private void OnCollisionExit(Collision collision) => groundSupport.Remove(collision.collider);
+
+    private void UpdateGroundContacts(Collision collision)
     {
-        if (Application.isPlaying && body != null)
+        // Unity는 비활성 MonoBehaviour에도 충돌 메시지를 보낼 수 있다.
+        if (state == PlayerState.Eliminated || !isActiveAndEnabled || feetTransform == null)
+            return;
+        groundSupport.UpdateContacts(collision, FootPosition, groundLayer, this);
+    }
+
+    private bool IsStandingOnGround()
+    {
+        return !IsEliminated && groundSupport.IsStanding(FootPosition, playerRigidbody.linearVelocity.y, groundLayer);
+    }
+
+    // ── 설정 검증 ──
+
+    private void OnValidate() // 실행 중 Inspector 값이 바뀌면 설정을 재검사한다.
+    {
+        if (Application.isPlaying && playerRigidbody != null)
             ValidateSettings();
     }
 
     private void ValidateSettings()
     {
-        int ground = LayerMask.NameToLayer("Ground");
-        if (actions != null && groundCheckTransform != null && groundCheckTransform != transform
-            && groundCheckTransform.IsChildOf(transform) && groundLayer.value != 0
-            && ground >= 0 && (groundLayer.value & (1 << ground)) != 0
-            && (groundLayer.value & (1 << gameObject.layer)) == 0
-            && Positive(maxSpeed) && Positive(acceleration) && Positive(deceleration)
-            && Positive(turnAcceleration) && Positive(groundCheckRadius) && Positive(jumpHeight)
-            && !float.IsNaN(fallDeathHeight) && !float.IsInfinity(fallDeathHeight)
-            && body != null && !body.isKinematic
-            && body.useGravity && body.linearDamping == 0f
-            && (body.constraints & RigidbodyConstraints.FreezePositionY) == 0
-            && Positive(-Physics.gravity.y) && Physics.gravity.x == 0f && Physics.gravity.z == 0f)
+        int groundLayerIndex = LayerMask.NameToLayer("Ground");
+        bool groundIsConfigured = feetTransform != null && feetTransform != transform
+            && feetTransform.IsChildOf(transform) && groundLayer.value != 0
+            && groundLayerIndex >= 0 && (groundLayer.value & (1 << groundLayerIndex)) != 0
+            && (groundLayer.value & (1 << gameObject.layer)) == 0;
+        bool movementSettingsAreValid = IsFinitePositive(maxHorizontalSpeed)
+            && IsFinitePositive(acceleration) && IsFinitePositive(deceleration) && IsFinitePositive(turnAcceleration)
+            && IsFinitePositive(feetMarkerRadius) && IsFinitePositive(jumpHeight)
+            && !float.IsNaN(fallDeathHeight) && !float.IsInfinity(fallDeathHeight);
+        bool physicsSettingsAreValid = playerRigidbody != null && !playerRigidbody.isKinematic
+            && playerRigidbody.useGravity && playerRigidbody.linearDamping == 0f
+            && (playerRigidbody.constraints & RigidbodyConstraints.FreezePositionY) == 0
+            && IsFinitePositive(-Physics.gravity.y) && Physics.gravity.x == 0f && Physics.gravity.z == 0f;
+
+        if (playerInput != null && groundIsConfigured && movementSettingsAreValid && physicsSettingsAreValid)
             return;
         Debug.LogError("PlayerMovement: check input actions, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump values plus a finite fall death height.", this);
         enabled = false;
     }
 
-    private static bool Positive(float value) => value > 0f && !float.IsInfinity(value);
+    private static bool IsFinitePositive(float value) => value > 0f && !float.IsInfinity(value);
 
-    private void OnGUI()
+    // ── 탈락 안내와 디버그 표시 ──
+
+    private void OnGUI() // 화면을 그릴 때 탈락 안내를 표시한다.
     {
-        if (state != PlayerState.Eliminated)
-            return;
-        // shortcut: 로컬 1인 프로토타입 안내, 실제 HUD·다국어 도입 시 UI 체계로 이전.
-        if (eliminationStyle == null)
-            eliminationStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
-            };
-        eliminationStyle.fontSize = Mathf.Clamp(Screen.width / 25, 18, 32);
-        float width = Mathf.Min(400f, Screen.width * 0.9f);
-        var panel = new Rect((Screen.width - width) * 0.5f, (Screen.height - 96f) * 0.5f, width, 96f);
-        Color previousColor = GUI.color;
-        GUI.color = new Color(0f, 0f, 0f, 0.95f);
-        GUI.DrawTexture(panel, Texture2D.whiteTexture);
-        GUI.color = Color.white;
-        GUI.Label(panel, "ELIMINATED\nR: 재시작", eliminationStyle);
-        GUI.color = previousColor;
+        if (IsEliminated)
+            eliminationOverlay.Draw();
     }
 
-    private void OnDrawGizmosSelected()
+    private void OnDrawGizmosSelected() // Editor에서 선택한 플레이어의 발 위치를 표시한다.
     {
-        if (groundCheckTransform == null)
+        if (feetTransform == null)
             return;
         Gizmos.color = state == PlayerState.Grounded ? Color.green : Color.red;
-        Gizmos.DrawWireSphere(groundCheckTransform.position, groundCheckRadius);
+        Gizmos.DrawWireSphere(feetTransform.position, feetMarkerRadius);
     }
 }

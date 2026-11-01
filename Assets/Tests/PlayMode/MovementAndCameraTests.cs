@@ -71,10 +71,10 @@ public class MovementAndCameraTests
         foot.SetParent(player.transform, false);
         foot.localPosition = Vector3.down;
         movement = player.AddComponent<PlayerMovement>();
-        SetField(movement, "groundCheckTransform", foot);
+        SetField(movement, "feetTransform", foot);
         SetField(movement, "groundLayer", (LayerMask)(1 << ground.layer));
         player.SetActive(true);
-        actions = (PlayerInputActions)typeof(PlayerMovement).GetField("actions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(movement);
+        actions = (PlayerInputActions)typeof(PlayerMovement).GetField("playerInput", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(movement);
         actions.devices = new InputDevice[] { keyboard, mouse };
         Assert.That(actions.bindingMask, Is.EqualTo(InputBinding.MaskByGroup("Keyboard&Mouse")));
         movement.SendMessage("OnApplicationFocus", true, SendMessageOptions.DontRequireReceiver);

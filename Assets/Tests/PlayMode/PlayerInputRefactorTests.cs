@@ -103,10 +103,10 @@ public class PlayerInputRefactorTests
             foot.SetParent(player.transform, false);
             foot.localPosition = Vector3.down;
             var movement = player.AddComponent<PlayerMovement>();
-            Field("groundCheckTransform").SetValue(movement, foot);
+            Field("feetTransform").SetValue(movement, foot);
             Field("groundLayer").SetValue(movement, (LayerMask)(1 << floor.layer));
             player.SetActive(true);
-            var actions = (PlayerInputActions)Field("actions").GetValue(movement);
+            var actions = (PlayerInputActions)Field("playerInput").GetValue(movement);
             actions.devices = new InputDevice[] { keyboard, mouse };
             movement.SendMessage("OnApplicationFocus", true);
             Physics.SyncTransforms();
@@ -135,11 +135,10 @@ public class PlayerInputRefactorTests
                     movement.SendMessage("OnApplicationFocus", true);
                     InputSystem.Update(); Step(5);
                     Assert.That(actions.Player.Move.ReadValue<Vector2>(), Is.EqualTo(Vector2.zero));
-                    Assert.That((bool)Field("waitingForNeutral").GetValue(movement), Is.True);
+                    Assert.That(Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude, Is.Zero);
                     Press(Key.W); Step(5);
                     Assert.That(body.linearVelocity.z, Is.Zero, "Opposing held keys are not neutral.");
                     Press();
-                    Assert.That((bool)Field("waitingForNeutral").GetValue(movement), Is.False);
                     Press(Key.W); Step(1);
                     Assert.That(body.linearVelocity.z, Is.GreaterThan(0f));
                     Press(); Step(10);
@@ -155,11 +154,11 @@ public class PlayerInputRefactorTests
                 }
                 Press(); Step(5);
                 Press(Key.Space); Press();
-                Assert.That((bool)Field("pendingJump").GetValue(movement), Is.True);
+                Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.True);
                 Step(1);
                 float launch = body.linearVelocity.y;
                 Assert.That(launch, Is.GreaterThan(0f));
-                Assert.That((bool)Field("pendingJump").GetValue(movement), Is.False);
+                Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.False);
                 Step(1);
                 Assert.That(body.linearVelocity.y, Is.LessThan(launch));
                 Step(160);
@@ -176,14 +175,14 @@ public class PlayerInputRefactorTests
                     movement.SendMessage("OnApplicationFocus", true);
                 }
                 Press(); Press(Key.R); Press();
-                Assert.That((bool)Field("pendingRestart").GetValue(movement), Is.True);
+                Assert.That((bool)Field("restartRequested").GetValue(movement), Is.True);
                 Step(1);
                 Assert.That(movement.IsEliminated, Is.False);
-                Assert.That((bool)Field("pendingRestart").GetValue(movement), Is.False);
+                Assert.That((bool)Field("restartRequested").GetValue(movement), Is.False);
                 Assert.That(Vector3.Distance(body.position, new Vector3(400f, 1f, 400f)), Is.LessThan(0.03f));
                 Press(Key.D); Step(10);
                 Assert.That(body.position.x, Is.GreaterThan(400f));
-                Assert.That((bool)Field("pendingRestart").GetValue(movement), Is.False);
+                Assert.That((bool)Field("restartRequested").GetValue(movement), Is.False);
             }
         }
         finally
@@ -222,6 +221,10 @@ public class PlayerInputRefactorTests
         GameObject player = FindPlayer(scene);
         Assert.That(player, Is.Not.Null, "SampleScene Player must exist.");
         Assert.That(player.GetComponent<PlayerMovement>(), Is.Not.Null);
+        var feet = (Transform)Field("feetTransform").GetValue(player.GetComponent<PlayerMovement>());
+        Assert.That(feet, Is.Not.Null, "Renaming the ground probe must preserve the serialized scene reference.");
+        Assert.That(feet.parent, Is.EqualTo(player.transform));
+        Assert.That(feet.localPosition, Is.EqualTo(Vector3.down));
         Assert.That(player.GetComponent<UnityEngine.InputSystem.PlayerInput>(), Is.Null,
             "PlayerInput must be removed from the scene player.");
 

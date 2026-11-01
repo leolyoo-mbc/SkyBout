@@ -43,7 +43,7 @@ public class RestartSceneTests
         Assert.That(player, Is.Not.Null);
         Assert.That(camera, Is.Not.Null);
         body = player.GetComponent<Rigidbody>();
-        var input = (PlayerInputActions)Read(player, "actions");
+        var input = (PlayerInputActions)Read(player, "playerInput");
         input.devices = new InputDevice[] { keyboard, mouse };
         player.SendMessage("OnApplicationFocus", true);
         Press();
@@ -85,8 +85,12 @@ public class RestartSceneTests
         {
             // Exercise normal jump/landing before each fall, not just teleported state resets.
             Press(); yield return null;
-            Press(Key.Space); yield return new WaitForFixedUpdate();
-            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            Press(Key.Space);
+            // Queued input is processed in DynamicUpdate, which may follow the next physics tick.
+            yield return null;
+            Assert.That(keyboard.spaceKey.isPressed, Is.True, "The queued Space event must be processed first.");
+            yield return new WaitForFixedUpdate();
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f), JumpDiagnostic());
             Press();
             for (int i = 0; i < 160 && Read(player, "state").ToString() != "Grounded"; i++) yield return new WaitForFixedUpdate();
             Assert.That(Read(player, "state").ToString(), Is.EqualTo("Grounded"));
@@ -180,8 +184,11 @@ public class RestartSceneTests
             Assert.That(Read(player, "state").ToString(), Is.EqualTo("Grounded"));
             Assert.That(body.linearVelocity.y, Is.LessThanOrEqualTo(0.1f));
             Press(); yield return null;
-            Press(Key.Space); yield return new WaitForFixedUpdate();
-            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f));
+            Press(Key.Space);
+            yield return null; // Observe DynamicUpdate input before checking its physics result.
+            Assert.That(keyboard.spaceKey.isPressed, Is.True, "The queued Space event must be processed first.");
+            yield return new WaitForFixedUpdate();
+            Assert.That(body.linearVelocity.y, Is.GreaterThan(0f), JumpDiagnostic());
             Press(); yield return null;
         }
     }
@@ -219,5 +226,10 @@ public class RestartSceneTests
         Assert.That(field, Is.Not.Null, name);
         return field.GetValue(target);
     }
+    private string JumpDiagnostic() =>
+        $"Space={keyboard.spaceKey.isPressed}, pending={Read(player, "jumpRequested")}, " +
+        $"state={Read(player, "state")}, " +
+        $"inputMode={InputSystem.settings.updateMode}, physicsMode={Physics.simulationMode}";
+
     private void Press(params Key[] keys) => InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys));
 }

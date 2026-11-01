@@ -176,3 +176,25 @@ T021: Assets/Tests/PlayMode/MovementAndCameraTests.cs의 점프 카메라 시험
 - [P] 5개: T006, T007, T018, T021, T027. 병렬 예시는 전제와 파일 충돌 제한을 따른다.
 - .specify/memory/constitution.md는 미작성 템플릿이다. 확정되지 않은 원칙을 신규 의무로 만들지 않는다.
 - 테스트 전용 공개 게임 API, 별도 점프 컴포넌트, 새 UI·패키지·프로젝트·네트워크 계층은 추가하지 않는다.
+
+## Phase 7: Convergence
+
+- [X] T029 **정정·원복 작업 취소** — 입력 아키텍처 변경의 후속 설계를 검토했다. `specs/005-refactor-player-input-state/plan.md` §입력 소유권 및 호출자 이행과 해당 tasks T005~T006, T011~T012가 생성 `PlayerInputActions`·이벤트 구독·PlayerInput 제거를 명시한다. 사용자 확인에 따라 현재 리팩터링을 유지하며 SendMessages 복원과 관련 시험 역이행은 수행하지 않는다. 기존 F1의 contradicts 판정은 후속 설계를 누락한 오판이었다. per 005 plan: 입력 소유권 및 호출자 이행
+- [X] T030 **정정·런타임 검사 추가 작업 취소** — `specs/005-refactor-player-input-state/plan.md` 핵심 결정 6 및 검증 설계, 해당 tasks T005/T007/T012를 검토했다. 문자열 액션 조회를 제거하고 필수 액션 누락 검증을 원본/생성 자산 계약 음성 시험으로 대체하도록 명시돼 있다. 현재 `JumpTests.MissingRequiredActionIsRejected`와 `PlayerInputRefactorTests`는 이 결정에 따른 구현이므로 주입 API나 런타임 FindAction 검사를 추가하지 않는다. 기존 F2 판정을 철회한다. per 005 plan: 핵심 결정 6; 005 T007, T012
+- [X] T031 **유지 근거 확인 완료** — 낙사·안내는 `specs/003-fall-elimination/plan.md`, Restart·R 바인딩·카메라 스냅은 `specs/004-restart-after-elimination/plan.md`의 정식 후속 기능이다. `specs/005-refactor-player-input-state/plan.md`도 이 동작의 보존을 요구한다. 사용자 확인에 따라 코드·씬·입력·테스트를 유지한다. 기존 F3의 unrequested 판정을 철회하며 삭제하지 않는다. per 003/004 plan; 005 plan: 기존 플레이 동작·설정 보존
+- [ ] T032 실제 `Assets/Scenes/SampleScene.unity`에서 사람의 키보드 조작으로 8방향 점프·공중 방향 변경/해제·착지 후 이동·2m/4m 가시성 및 커서 무관 동작을 확인하고 `specs/002-ground-jump/quickstart.md`에 결과와 잔여 위험을 자동 시험 증거와 구분해 기록한다. 수동 검증자가 없으면 미실행 상태를 유지하고 자동 시험이나 캡처 검토를 수동 플레이 통과로 대체하지 않는다. per T025, T028; plan: Testing (partial)
+- [X] T033 `Assets/Tests/PlayMode/RestartSceneTests.cs`의 재현 실패를 조사한다. 전체 PlayMode 실행에서 두 시험이 시작 점프 Y 속도 0으로 실패했고, 클래스 단독 재실행에서는 `FocusAndHeldKeysDoNotReviveOrJumpWithoutFreshInput`가 통과했지만 `TwentyNaturalFallsRestartSameInstancesWithImmediateCameraAndReadableOverlay`는 89행에서 다시 실패했다. 입력 이벤트 처리와 FixedUpdate 실행 순서·실제 지지·초점 상태를 확인하여 테스트 스케줄 문제와 런타임 문제를 구분하고, 원인에 맞는 최소 수정 후 단독 및 전체 71개 시험을 재실행한다. 기존 반복 횟수·단언·사용자 기능을 삭제하거나 완화하지 않는다. per 004 plan: 검증 설계; 005 T026 (partial)
+
+### 2026-10-31 정정 및 재검증 기록
+
+- 사용자가 기존 기능 유지와 잘못 추가한 작업 정정을 승인했다. T029~T031의 체크는 검토·정정 완료를 뜻하며, 원복이나 기능 삭제를 수행했다는 뜻이 아니다. T001~T028의 과거 기록은 수정하지 않았다.
+- Unity 6000.3.26f1, `SkyBout.PlayModeTests` PlayMode: 71개 중 69 통과 / 2 실패 / 0 건너뜀, 38.27초. 실패 위치는 `RestartSceneTests.cs:184`와 `:89`이며 모두 기대 Y 속도 > 0, 실제 0이다.
+- `RestartSceneTests` 단독 재실행: 2개 중 1 통과 / 1 실패 / 0 건너뜀, 2초. 초점 시험은 통과했으나 20회 반복 시험은 89행에서 다시 실패했다. 원인은 확정하지 않았고 T033으로 남긴다. 과거 71/71 기록을 이번 실행 결과로 사용하지 않는다.
+- 이번 실행에서 런타임·씬·입력·테스트 코드를 변경하지 않았다. 실제 사람의 키보드 플레이는 수행하지 않았으므로 T032는 미완료다. 관련 후속 수동 검수는 005 T027과 연결한다.
+
+### 2026-10-31 T033 원인 확인 및 수정 완료
+
+- 수정 전 점프 단언에 입력/상태 진단을 추가해 실패를 재현했다(1개 실패, 64.72초). 관측값은 `Space=False, pending=False, held=False, ready=True, focused=True, state=Grounded, inputMode=ProcessEventsInDynamicUpdate, physicsMode=FixedUpdate`였다. Space 이벤트가 아직 처리되지 않은 상태에서 다음 물리 틱만 기다린 뒤 점프를 판정한 테스트 스케줄 문제로 확인했다.
+- `RestartSceneTests.cs`의 두 점프 검사에서 이벤트 큐 등록 후 `yield return null`로 자연 DynamicUpdate를 거치고 실제 Space 눌림을 단언한 다음 `WaitForFixedUpdate`로 점프 결과를 확인하도록 수정했다. 실패 진단은 유지했다. 수동 InputSystem.Update/FixedUpdate 호출, 게임 로직 변경, 허용 오차 완화, 반복 횟수 축소는 없다.
+- 수정 후 재컴파일 오류 0. 클래스 단독 **2 passed / 0 failed / 0 skipped**, 77.64초. 전체 `SkyBout.PlayModeTests` **71 passed / 0 failed / 0 skipped**, 114.78초. 두 실행 모두 실제 SampleScene의 20회 반복 시험을 포함한다. Unity 도구 `run_tests` 응답을 근거로 기록했으며 별도 원본 결과 파일을 저장했다고 주장하지 않는다.
+- T033은 완료 처리한다. 사람의 직접 플레이 T032 및 005 T027은 여전히 미완료다. 입력 리팩터링·낙사·재시작 기능과 기존 사용자 ProjectSettings 변경은 보존했다.

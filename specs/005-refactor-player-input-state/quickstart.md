@@ -2,6 +2,10 @@
 
 ## 현재 상태
 
+2026-11-01 사용자 후속 요청에 따른 가독성 정리: `PlayerMovement.cs`를 역할별로 정렬하고, `body/actions/input/pendingJump` 등을 `playerRigidbody/playerInput/moveInput/jumpRequested`로 변경했다. Unity 콜백에는 호출 목적을 한국어로 적고, 일반 입력 함수는 `ConnectInputEvents`, `HandleJumpPress`, `UpdateReleasedKeys`처럼 역할을 표현한다. Button 액션이 이미 새 누름을 구분하므로 중복 홀드 변수와 취소 콜백을 제거했으며, 실제 키 해제 확인·초점 복귀 제한·단발 요청 소비는 유지했다. 공통 키 해제 검사와 입력 초기화를 재사용해 직전 480줄에서 436줄로 줄였고 새 클래스나 파일로 옮기지 않았다. 기존 설정 필드 `maxSpeed`, `groundCheckTransform`, `groundCheckRadius`의 이름 변경에는 `FormerlySerializedAs`를 적용해 씬 값을 보존했다. 기존 71개 시험 및 새 Button 홀드/재누름 시험 2개가 **73/73 통과(115.29초)**했고, 실제 씬의 발 참조 보존 단언도 통과했다. 기존 테스트 관측용 reflection은 새 이름에 맞췄으며 기존 동작 단언·반복 횟수는 완화하지 않았다. 아래 문서의 이전 필드·핸들러 이름은 구현 당시 기록이다. 사람의 직접 플레이 검수는 이 자동 결과와 별개다.
+
+2026-10-31 후속 재검증: **전체 PlayMode 71/71 통과(114.78초), RestartSceneTests 단독 2/2 통과(77.64초)**. 재시작 씬 시험에서 큐에 등록한 Space 이벤트가 DynamicUpdate에서 처리되기 전에 물리 결과를 검사하는 타이밍 문제를 재현해 수정했다. 수정은 `Assets/Tests/PlayMode/RestartSceneTests.cs`의 입력 처리 대기·Space 상태 단언·실패 진단에 한정한다. 리팩터링된 런타임·씬·생성 입력 코드는 유지하며 기존 단언·반복 횟수를 완화하지 않았다. 상세 원인과 수정 전후 기록은 [002 tasks의 T033 실행 기록](../002-ground-jump/tasks.md)에 있다. 이번 결과는 Unity `run_tests` 응답 기준이며 아래 `005-after.*`의 과거 파일을 이번 결과로 덮어쓰지 않았다. 사람의 수동 검수는 여전히 미완료다.
+
 2026-10-30: **구현 및 자동 회귀 완료, 사람의 수동 검수 대기**. Unity 6000.3.26f1에서 기준선 66개(65 통과·1 실패), 변경 후 71개 전부 통과(115.98초). 기존 66개 시험 이름을 유지했고 기준선 통과 65개에 새 실패는 없다. 생성 클래스명은 맵 래퍼 `PlayerActions`와의 이름 충돌을 피해 `PlayerInputActions`로 변경했다. 작은 Game 뷰 한글 가독성·실제 조작감은 미검증이며 통과로 합산하지 않는다.
 
 계약: [contracts/player-input.md](contracts/player-input.md). 상태와 적용 순서: [data-model.md](data-model.md). 요구사항과 반복 횟수: [spec.md](spec.md)의 SC-001~007.

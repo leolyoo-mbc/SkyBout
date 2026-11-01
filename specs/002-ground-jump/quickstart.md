@@ -2,6 +2,16 @@
 
 기존 Unity 프로젝트에 구현된 지상 점프의 실행·재검증 가이드다. 최종 자동 검증과 실제 씬 카메라 캡처 확인 결과는 아래에 기록했다.
 
+## 현재 적용 기준 및 재검증 — 2026-10-31
+
+**최신 결과: T033 수정 후 전체 자동 회귀 71/71 통과(114.78초), 재시작 씬 단독 2/2 통과(77.64초).** 아래 실패 기록은 수정 전 관측이다. 실패 시 Space 이벤트가 아직 처리되지 않았음을 확인했고, `RestartSceneTests.cs`의 두 점프 검사가 자연 DynamicUpdate에서 Space 눌림을 확인한 다음 물리 결과를 검사하도록 수정했다. 게임 코드·판정 임계값·반복 횟수는 바꾸지 않았다. 사람의 직접 플레이는 여전히 미완료다.
+
+- 아래 본문의 PlayerInput/SendMessages 설정과 낙사·복귀 범위 제외는 **002 구현 당시의 기준**이다. 현재는 `../003-fall-elimination/plan.md`, `../004-restart-after-elimination/plan.md`, `../005-refactor-player-input-state/plan.md`의 후속 기능이 적용돼 있다. PlayerInput을 다시 추가하지 말고 생성 `PlayerInputActions`와 기존 낙사·재시작 기능을 유지한다. 현재 실행 절차는 [005 quickstart](../005-refactor-player-input-state/quickstart.md)를 따른다.
+- 사용자 승인에 따라 tasks T029~T031의 잘못된 원복/누락/범위 초과 판정을 정정했다. 필수 액션 누락은 005의 결정대로 원본/생성 입력 계약의 음성 시험으로 검증한다.
+- 연결된 Unity 6000.3.26f1에서 전체 PlayMode 재실행: **69 passed / 2 failed / 0 skipped**, 총 71개, 38.27초. JumpTests 30개·MovementAndCameraTests 7개·PlayerInputRefactorTests 5개는 통과했다. 실패는 `RestartSceneTests.FocusAndHeldKeysDoNotReviveOrJumpWithoutFreshInput`(184행)와 `RestartSceneTests.TwentyNaturalFallsRestartSameInstancesWithImmediateCameraAndReadableOverlay`(89행)의 점프 Y 속도 > 0 단언이며 실제 값은 0이다.
+- 해당 클래스 단독 재실행: **1 passed / 1 failed / 0 skipped**, 2초. 초점 시험은 통과했으나 20회 반복 시험의 89행 실패는 재현됐다. 원인은 아직 확정하지 않았으며 tasks T033에서 입력/물리 스케줄과 런타임을 구분해 조사해야 한다. 현재 전체 회귀를 통과로 보고하지 않는다.
+- 이번 작업은 문서·작업 목록 정정과 기존 시험 실행만 수행했다. 과거 Completion Evidence는 당시 기록이며 위 결과를 대체하지 않는다. 사람의 직접 플레이는 수행하지 않았고 T032 및 005 T027은 미완료다.
+
 ## Prerequisites
 
 - 이 저장소 루트 E:/projects/SkyBout를 Unity Hub에서 기존 프로젝트로 연다. 새 프로젝트를 만들지 않는다.

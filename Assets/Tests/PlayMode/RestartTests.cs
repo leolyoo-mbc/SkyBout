@@ -59,10 +59,10 @@ public class RestartTests
         foot.SetParent(player.transform, false);
         foot.localPosition = Vector3.down;
         movement = player.AddComponent<PlayerMovement>();
-        SetField("groundCheckTransform", foot);
+        SetField("feetTransform", foot);
         SetField("groundLayer", (LayerMask)(1 << ground.layer));
         player.SetActive(true);
-        actions = (PlayerInputActions)Field("actions").GetValue(movement);
+        actions = (PlayerInputActions)Field("playerInput").GetValue(movement);
         actions.devices = new InputDevice[] { keyboard, mouse };
         movement.SendMessage("OnApplicationFocus", true);
         Physics.SyncTransforms();
@@ -111,6 +111,11 @@ public class RestartTests
             Assert.That(Quaternion.Angle(body.rotation, rotation), Is.LessThan(0.01f));
             Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
             Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
+            // 재시작 전 접촉을 재사용하지 않고 새 물리 접촉을 기다려야 한다.
+            Press(); Press(Key.Space);
+            movement.SendMessage("FixedUpdate");
+            Assert.That(body.linearVelocity.y, Is.Zero, "Old support must not permit a jump immediately after teleporting.");
+            Assert.That(Grounded(), Is.False);
             Press(); Step(Mathf.CeilToInt(2f / Time.fixedDeltaTime));
             Assert.That(Vector3.Distance(body.position, start), Is.LessThan(0.04f));
             Assert.That(Grounded(), Is.True);
