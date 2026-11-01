@@ -279,8 +279,11 @@ public class JumpTests
             {
                 Press(Key.Space);
                 Assert.That((bool)Field("jumpRequested").GetValue(movement), Is.False);
+                Assert.That((bool)Field("glideRequested").GetValue(movement), Is.True,
+                    "A fresh airborne press now requests a glider, not another jump.");
             }
             Step(160);
+            Assert.That(movement.IsGliding, Is.False, "Gliding must end at actual landing; holding cannot re-deploy.");
             Assert.That(body.position.y, Is.EqualTo(start.y).Within(0.03f));
             Assert.That(Grounded(), Is.True);
             Assert.That(Mathf.Abs(body.linearVelocity.y), Is.LessThan(0.1f));
@@ -435,7 +438,7 @@ public class JumpTests
         yield return ExerciseSceneJump(actualPlayer, new Key[0], 4f);
         Assert.That(Time.frameCount, Is.GreaterThan(initialFrame), "Natural player loop must advance.");
 
-        // Edge departure must not land at the starting height or accept Space in the void.
+        // Edge departure cannot land in the void; a fresh airborne Space now deploys, never jumps.
         actualBody.position = new Vector3(15f, 1f, 0f);
         actualBody.linearVelocity = Vector3.zero;
         Physics.SyncTransforms();
@@ -453,6 +456,8 @@ public class JumpTests
         InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space));
         for (int i = 0; i < 3; i++) yield return new WaitForFixedUpdate();
         Assert.That(actualBody.linearVelocity.y, Is.LessThan(0f));
+        Assert.That(actualPlayer.IsGliding, Is.True);
+        Assert.That(actualBody.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f));
         float yVelocity = actualBody.linearVelocity.y;
         actualPlayer.SendMessage("OnApplicationFocus", false);
         Assert.That(actualBody.linearVelocity.y, Is.EqualTo(yVelocity));

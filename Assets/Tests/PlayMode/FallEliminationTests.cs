@@ -162,7 +162,7 @@ public class FallEliminationTests
     }
 
     [Test]
-    public void SpaceOutsideIslandNeverAddsJumpOrGliderFiveTimes()
+    public void SpaceOutsideIslandDeploysGliderWithoutAddingJumpFiveTimes()
     {
         for (int sample = 0; sample < 5; sample++)
         {
@@ -171,10 +171,10 @@ public class FallEliminationTests
             Step(3);
             for (int i = 0; i < 10; i++)
             {
-                float before = body.linearVelocity.y;
                 Press(i % 2 == 0 ? new[] { Key.Space } : new Key[0]);
                 Step();
-                Assert.That(body.linearVelocity.y, Is.LessThan(before));
+                Assert.That(movement.IsGliding, Is.True);
+                Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f), "Space deploys without adding an upward jump or toggling closed.");
                 Assert.That(Grounded(), Is.False);
             }
         }

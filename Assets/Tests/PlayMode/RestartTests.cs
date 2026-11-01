@@ -114,11 +114,15 @@ public class RestartTests
             // 재시작 전 접촉을 재사용하지 않고 새 물리 접촉을 기다려야 한다.
             Press(); Press(Key.Space);
             movement.SendMessage("FixedUpdate");
-            Assert.That(body.linearVelocity.y, Is.Zero, "Old support must not permit a jump immediately after teleporting.");
+            Assert.That(body.linearVelocity.y, Is.EqualTo(-2f).Within(0.05f),
+                "Fresh Space before support rebuild may glide, but old support must never permit an upward jump.");
+            Assert.That(movement.IsGliding, Is.True);
             Assert.That(Grounded(), Is.False);
             Press(); Step(Mathf.CeilToInt(2f / Time.fixedDeltaTime));
             Assert.That(Vector3.Distance(body.position, start), Is.LessThan(0.04f));
             Assert.That(Grounded(), Is.True);
+            Assert.That(movement.IsGliding, Is.False);
+            Assert.That(body.useGravity, Is.True);
             Assert.That(player.GetInstanceID(), Is.EqualTo(id));
             Press(Key.D); Step(10);
             Assert.That(body.linearVelocity.x, Is.GreaterThan(0f));

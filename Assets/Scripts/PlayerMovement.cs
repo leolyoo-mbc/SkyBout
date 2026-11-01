@@ -5,7 +5,7 @@ using UnityEngine.Serialization;
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerMovement : MonoBehaviour
 {
-    private enum PlayerState { Grounded, Airborne, Eliminated }
+    private enum PlayerState { Grounded, Airborne, Gliding, Eliminated }
 
     // Inspector 설정: 이동·점프·낙사
     [FormerlySerializedAs("maxSpeed")]
@@ -21,6 +21,8 @@ public class PlayerMovement : MonoBehaviour
     private float jumpHeight = 2f;
     [SerializeField, Tooltip("발 위치가 이 월드 Y 높이보다 낮으면 탈락")]
     private float fallDeathHeight = -10f;
+    [SerializeField, Min(0.001f), Tooltip("글라이딩 중 일정 하강 속도 (m/s)")]
+    private float glideDescentSpeed = 2f;
 
     // Inspector 참조: 발 위치·지면 레이어·카메라
     [FormerlySerializedAs("groundCheckTransform")]
@@ -31,6 +33,8 @@ public class PlayerMovement : MonoBehaviour
     private float feetMarkerRadius = 0.2f;
     [SerializeField] private LayerMask groundLayer;
     [SerializeField] private TopDownCameraFollow cameraFollow;
+    [SerializeField, Tooltip("충돌 없는 플레이어 자식 날개 표시")]
+    private GameObject gliderVisual;
 
     // 컴포넌트 참조와 현재 지상·공중·탈락 상태
     private Rigidbody playerRigidbody;
@@ -42,6 +46,7 @@ public class PlayerMovement : MonoBehaviour
 
     // 입력 시점에 허용된 요청을 다음 물리 갱신에서 한 번만 실행한다.
     private bool jumpRequested;
+    private bool glideRequested;
     private bool restartRequested;
 
     // 재시작할 최초 자세
@@ -49,6 +54,7 @@ public class PlayerMovement : MonoBehaviour
     private Quaternion startingRotation;
 
     public bool IsEliminated => state == PlayerState.Eliminated;
+    public bool IsGliding => state == PlayerState.Gliding;
     private Vector3 FootPosition => playerRigidbody.position + (feetTransform.position - transform.position);
 
     // ── Unity 생명주기와 물리 갱신 순서 ──
@@ -64,6 +70,7 @@ public class PlayerMovement : MonoBehaviour
         startingPosition = playerRigidbody.position;
         startingRotation = playerRigidbody.rotation;
         ValidateSettings();
+        UpdateGliderVisual();
     }
 
     private void OnEnable() // 활성화 시 입력을 연결한다.
@@ -78,7 +85,7 @@ public class PlayerMovement : MonoBehaviour
     {
         inputReader?.Disable();
         groundSupport.Clear();
-        if (state != PlayerState.Eliminated)
+        if (!IsEliminated && !IsGliding)
             state = PlayerState.Airborne;
         ResetRequests();
         StopHorizontalMovement();
@@ -86,6 +93,10 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnDestroy() // 삭제 시 입력 자산을 해제한다.
     {
+        if (playerRigidbody != null)
+            playerRigidbody.useGravity = true;
+        if (gliderVisual != null)
+            gliderVisual.SetActive(false);
         if (inputReader != null)
         {
             inputReader.Disable();
@@ -129,6 +140,9 @@ public class PlayerMovement : MonoBehaviour
 
         UpdateGroundedState();
         ProcessJumpRequest();
+        ProcessGlideRequest();
+        if (IsGliding)
+            ApplyGlideVelocity();
 
         // 초점·이동 키 해제 대기는 수평 이동만 막는다. 공중 물리는 계속된다.
         if (!inputReader.CanMove)
@@ -144,9 +158,13 @@ public class PlayerMovement : MonoBehaviour
 
     private void RequestJump()
     {
-        // 공중에서 누른 입력이 착지 후 실행되지 않도록 입력 시점에도 접지를 확인한다.
-        if (isActiveAndEnabled && !IsEliminated && IsStandingOnGround())
+        // 입력 순간의 의도를 고정한다. 한 틱의 추가 입력으로 점프/전개를 연쇄 실행하지 않는다.
+        if (!isActiveAndEnabled || IsEliminated || jumpRequested || glideRequested)
+            return;
+        if (IsStandingOnGround())
             jumpRequested = true;
+        else if (!IsGliding)
+            glideRequested = true;
     }
 
     private void RequestRestart()
@@ -158,6 +176,7 @@ public class PlayerMovement : MonoBehaviour
     private void ResetRequests()
     {
         jumpRequested = false;
+        glideRequested = false;
         restartRequested = false;
     }
 
@@ -165,7 +184,7 @@ public class PlayerMovement : MonoBehaviour
 
     private void EliminatePlayer()
     {
-        state = PlayerState.Eliminated;
+        SetState(PlayerState.Eliminated);
         ResetRequests();
         groundSupport.Clear();
         inputReader.SetEliminated(true);
@@ -181,7 +200,7 @@ public class PlayerMovement : MonoBehaviour
         playerRigidbody.linearVelocity = Vector3.zero;
         playerRigidbody.angularVelocity = Vector3.zero;
         groundSupport.Clear();
-        state = PlayerState.Airborne;
+        SetState(PlayerState.Airborne);
         inputReader.SetEliminated(false);
         playerRigidbody.WakeUp();
         if (cameraFollow != null)
@@ -192,7 +211,13 @@ public class PlayerMovement : MonoBehaviour
 
     private void UpdateGroundedState()
     {
-        state = IsStandingOnGround() ? PlayerState.Grounded : PlayerState.Airborne;
+        if (IsStandingOnGround())
+        {
+            SetState(PlayerState.Grounded);
+            glideRequested = false;
+        }
+        else if (!IsGliding)
+            SetState(PlayerState.Airborne);
     }
 
     private void ProcessJumpRequest()
@@ -206,7 +231,34 @@ public class PlayerMovement : MonoBehaviour
             return;
 
         ApplyJumpVelocity();
-        state = PlayerState.Airborne;
+        SetState(PlayerState.Airborne);
+    }
+
+    private void ProcessGlideRequest()
+    {
+        bool shouldGlide = glideRequested;
+        glideRequested = false;
+        if (shouldGlide && inputReader.HasFocus && state == PlayerState.Airborne)
+            SetState(PlayerState.Gliding);
+    }
+
+    private void ApplyGlideVelocity()
+    {
+        playerRigidbody.linearVelocity = new Vector3(playerRigidbody.linearVelocity.x,
+            -glideDescentSpeed, playerRigidbody.linearVelocity.z);
+    }
+
+    private void SetState(PlayerState nextState)
+    {
+        state = nextState;
+        playerRigidbody.useGravity = !IsGliding;
+        UpdateGliderVisual();
+    }
+
+    private void UpdateGliderVisual()
+    {
+        if (gliderVisual != null && gliderVisual.activeSelf != IsGliding)
+            gliderVisual.SetActive(IsGliding);
     }
 
     private void ApplyJumpVelocity()
@@ -240,6 +292,9 @@ public class PlayerMovement : MonoBehaviour
         if (state == PlayerState.Eliminated || !isActiveAndEnabled || feetTransform == null)
             return;
         groundSupport.UpdateContacts(collision, FootPosition, groundLayer, this);
+        // 물리 충돌이 해결된 첫 표시 프레임부터 날개를 닫는다.
+        if (IsGliding && IsStandingOnGround())
+            UpdateGroundedState();
     }
 
     private bool IsStandingOnGround()
@@ -264,16 +319,16 @@ public class PlayerMovement : MonoBehaviour
             && (groundLayer.value & (1 << gameObject.layer)) == 0;
         bool movementSettingsAreValid = IsFinitePositive(maxHorizontalSpeed)
             && IsFinitePositive(acceleration) && IsFinitePositive(deceleration) && IsFinitePositive(turnAcceleration)
-            && IsFinitePositive(feetMarkerRadius) && IsFinitePositive(jumpHeight)
+            && IsFinitePositive(feetMarkerRadius) && IsFinitePositive(jumpHeight) && IsFinitePositive(glideDescentSpeed)
             && !float.IsNaN(fallDeathHeight) && !float.IsInfinity(fallDeathHeight);
         bool physicsSettingsAreValid = playerRigidbody != null && !playerRigidbody.isKinematic
-            && playerRigidbody.useGravity && playerRigidbody.linearDamping == 0f
+            && playerRigidbody.useGravity == !IsGliding && playerRigidbody.linearDamping == 0f
             && (playerRigidbody.constraints & RigidbodyConstraints.FreezePositionY) == 0
             && IsFinitePositive(-Physics.gravity.y) && Physics.gravity.x == 0f && Physics.gravity.z == 0f;
 
         if (playerInput != null && groundIsConfigured && movementSettingsAreValid && physicsSettingsAreValid)
             return;
-        Debug.LogError("PlayerMovement: check input actions, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump values plus a finite fall death height.", this);
+        Debug.LogError("PlayerMovement: check input actions, child ground probe, Ground mask, dynamic gravity Rigidbody (zero damping, Y unlocked), downward gravity and finite positive movement/jump/glide values plus a finite fall death height.", this);
         enabled = false;
     }
 
