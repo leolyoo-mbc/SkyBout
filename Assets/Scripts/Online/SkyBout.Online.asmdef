@@ -1,0 +1,5 @@
+{
+  "name": "SkyBout.Online",
+  "references": ["SkyBout.Runtime", "Unity.Netcode.Runtime", "Unity.Networking.Transport", "Unity.Services.Multiplayer", "Unity.Services.Core", "Unity.Services.Authentication", "Unity.InputSystem", "Unity.ugui"],
+  "autoReferenced": true
+}

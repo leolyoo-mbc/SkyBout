@@ -39,6 +39,10 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private TopDownCameraFollow cameraFollow;
     [SerializeField, Tooltip("충돌 없는 플레이어 자식 날개 표시")]
     private GameObject gliderVisual;
+    [SerializeField, Tooltip("온라인 prefab은 소유권 확정 전 입력과 물리를 실행하지 않음")]
+    private bool requiresLocalBinding;
+    private bool localBinding;
+    private bool controlSuspended;
 
     // 컴포넌트 참조와 현재 지상·공중·탈락 상태
     private Rigidbody playerRigidbody;
@@ -59,6 +63,9 @@ public class PlayerMovement : MonoBehaviour
 
     public bool IsEliminated => state == PlayerState.Eliminated;
     public bool IsGliding => state == PlayerState.Gliding;
+    public bool HasLocalControl => !requiresLocalBinding || localBinding;
+    public int MotionState => (int)state;
+    public event System.Action Restarted;
     private Vector3 FootPosition => playerRigidbody.position + (feetTransform.position - transform.position);
 
     // ── Unity 생명주기와 물리 갱신 순서 ──
@@ -74,7 +81,10 @@ public class PlayerMovement : MonoBehaviour
         inputReader.RestartPressed += RequestRestart;
         startingPosition = playerRigidbody.position;
         startingRotation = playerRigidbody.rotation;
-        ValidateSettings();
+        if (HasLocalControl)
+            ValidateSettings();
+        else
+            playerRigidbody.isKinematic = true;
         UpdateGliderVisual();
     }
 
@@ -83,7 +93,8 @@ public class PlayerMovement : MonoBehaviour
         ResetRequests();
         if (playerRigidbody != null && !playerRigidbody.isKinematic)
             playerRigidbody.WakeUp(); // 재활성화된 플레이어의 지면 접촉 콜백을 다시 받는다.
-        inputReader?.Enable(Application.isFocused);
+        if (HasLocalControl && !controlSuspended)
+            inputReader?.Enable(Application.isFocused);
     }
 
     private void OnDisable() // 비활성화 시 입력과 지면 접촉 정보를 정리한다.
@@ -119,6 +130,8 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnApplicationFocus(bool hasFocus) // 창 초점이 바뀌면 이전 입력을 버린다.
     {
+        if (!HasLocalControl)
+            return;
         inputReader?.SetFocus(hasFocus);
         ResetRequests();
         StopHorizontalMovement();
@@ -126,6 +139,8 @@ public class PlayerMovement : MonoBehaviour
 
     private void FixedUpdate() // 일정한 물리 간격으로 플레이어 동작을 처리한다.
     {
+        if (!HasLocalControl)
+            return;
         // 새로 낙사한 틱에는 재시작·점프·이동을 처리하지 않는다.
         if (!IsEliminated && FootPosition.y < fallDeathHeight)
         {
@@ -220,6 +235,7 @@ public class PlayerMovement : MonoBehaviour
         playerRigidbody.WakeUp();
         if (cameraFollow != null)
             cameraFollow.SnapToTarget();
+        Restarted?.Invoke();
     }
 
     // ── 생존 중 접지·점프·수평 속도 갱신 ──
@@ -306,7 +322,7 @@ public class PlayerMovement : MonoBehaviour
     private void UpdateGroundContacts(Collision collision)
     {
         // Unity는 비활성 MonoBehaviour에도 충돌 메시지를 보낼 수 있다.
-        if (state == PlayerState.Eliminated || !isActiveAndEnabled || feetTransform == null)
+        if (!HasLocalControl || state == PlayerState.Eliminated || !isActiveAndEnabled || feetTransform == null)
             return;
         groundSupport.UpdateContacts(collision, FootPosition, groundLayer, this);
         // 물리 충돌이 해결된 첫 표시 프레임부터 날개를 닫는다.
@@ -323,7 +339,7 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnValidate() // 실행 중 Inspector 값이 바뀌면 설정을 재검사한다.
     {
-        if (Application.isPlaying && playerRigidbody != null)
+        if (Application.isPlaying && playerRigidbody != null && HasLocalControl)
             ValidateSettings();
     }
 
@@ -360,8 +376,56 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnGUI() // 화면을 그릴 때 탈락 안내를 표시한다.
     {
-        if (IsEliminated)
+        if (HasLocalControl && IsEliminated)
             eliminationOverlay.Draw();
+    }
+
+    public void BindLocalControl(TopDownCameraFollow follow, Vector3 spawnPosition, Quaternion spawnRotation)
+    {
+        localBinding = true;
+        cameraFollow = follow;
+        startingPosition = spawnPosition;
+        startingRotation = spawnRotation;
+        playerRigidbody.isKinematic = false;
+        playerRigidbody.useGravity = !IsGliding;
+        ValidateSettings();
+        if (isActiveAndEnabled && !controlSuspended)
+            inputReader.Enable(Application.isFocused);
+        if (follow != null)
+            follow.BindTarget(transform);
+    }
+
+    public void UnbindLocalControl()
+    {
+        inputReader?.Disable();
+        ResetRequests();
+        groundSupport.Clear();
+        requiresLocalBinding = true;
+        localBinding = false;
+        cameraFollow = null;
+        if (playerRigidbody != null)
+            playerRigidbody.isKinematic = true;
+    }
+
+    public void SetControlSuspended(bool suspended)
+    {
+        controlSuspended = suspended;
+        ResetRequests();
+        if (suspended)
+        {
+            inputReader?.Disable();
+            StopHorizontalMovement();
+        }
+        else if (isActiveAndEnabled && HasLocalControl)
+            inputReader?.Enable(Application.isFocused);
+    }
+
+    public void ApplyRemoteState(int value)
+    {
+        if (HasLocalControl || value < 0 || value > (int)PlayerState.Eliminated)
+            return;
+        state = (PlayerState)value;
+        UpdateGliderVisual();
     }
 
     private void OnDrawGizmosSelected() // Editor에서 선택한 플레이어의 발 위치를 표시한다.

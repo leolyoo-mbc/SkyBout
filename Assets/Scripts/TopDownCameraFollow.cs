@@ -11,6 +11,7 @@ public class TopDownCameraFollow : MonoBehaviour
     private float followSharpness = 10f;
 
     private Camera view;
+    private bool waitingForTarget;
 
     private void Awake()
     {
@@ -21,6 +22,8 @@ public class TopDownCameraFollow : MonoBehaviour
 
     public void SnapToTarget()
     {
+        if (waitingForTarget)
+            return;
         if (!ValidateSettings())
             return;
         view.orthographic = false;
@@ -31,6 +34,8 @@ public class TopDownCameraFollow : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (waitingForTarget)
+            return;
         if (!ValidateSettings())
             return;
         transform.rotation = Quaternion.Euler(pitch, 0f, 0f);
@@ -49,6 +54,22 @@ public class TopDownCameraFollow : MonoBehaviour
         Debug.LogError("TopDownCameraFollow: assign a target and finite positive distance/follow values, pitch (0,90), FOV (0,180).", this);
         enabled = false;
         return false;
+    }
+
+    public void BindTarget(Transform value)
+    {
+        target = value;
+        waitingForTarget = value == null;
+        if (view == null)
+            view = GetComponent<Camera>();
+        enabled = true;
+        SnapToTarget();
+    }
+
+    public void ClearTarget()
+    {
+        target = null;
+        waitingForTarget = true;
     }
 
     private static bool Positive(float value) => value > 0f && !float.IsInfinity(value);

@@ -1,14 +1,37 @@
 # Quickstart: 온라인 2인 방 검증
 
-이 문서는 **구현 후** 실행할 검증 가이드다. 현재 단계에서 아래 기능이나 시험 결과가 이미 존재한다는 뜻이 아니다. 동작 계약은 [contracts/online-room.md](contracts/online-room.md), 상태는 [data-model.md](data-model.md)를 참고한다.
+이 문서는 구현된 프로토타입의 검증 가이드다. 방 생성 실접속과 로컬 NGO 복제는 확인했지만 다른 회선의 두 기기 인수는 미검증이다. 동작 계약은 [contracts/online-room.md](contracts/online-room.md), 상태는 [data-model.md](data-model.md)를 참고한다.
+
+## 현재 실행 방법
+
+### 권장: 빌드 없이 Multiplayer Play Mode로 2인 테스트
+
+1. `Assets/Scenes/SampleScene.unity`를 연다.
+2. **Window > Multiplayer > Play Mode Scenarios**를 열고 **OnlineTwoPlayers**를 선택한다. 준비된 자산은 `Assets/Settings/OnlineTwoPlayers.asset`이며 메인 Editor와 Additional Editor 1개가 같은 SampleScene을 실행한다. 2.0.2의 설치 문서와 달리 현재 에디터의 실제 메뉴 경로는 위와 같다.
+3. 상단 Play 버튼 옆 시나리오 선택에서 **OnlineTwoPlayers**를 선택하고 **▶**를 누른다. 일반 기본 Play가 아니라 이 시나리오를 실행한다. 추가 Editor가 처음 준비될 때는 시간이 걸릴 수 있다. Local Instance는 실행 파일 빌드가 필요하므로 여기서는 **Additional Editor**를 사용한다.
+4. 메인 게임 창에서 **온라인 방 → 방 만들기 → 코드 복사**, Player 2 창에서 **온라인 방 → 코드 입력 → 코드로 참가**를 누른다.
+5. 양쪽 인원 2/2와 각 화면의 두 캐릭터를 확인한다. 창을 번갈아 클릭해 자기 캐릭터만 WASD로 움직이고 상대 화면에도 반영되는지 확인한다. 창 포커스를 잃으면 글라이더가 접히는 현재 게임 규칙은 그대로 적용된다.
+
+Multiplayer Play Mode 2.0.2는 현재 Unity 6000.3.26f1과 호환되는 설치 버전이다. 추가 Editor가 받는 `-name Player2` 등의 인수에서 인증 profile을 분리한다(`room-editor-player2`, `room-editor-player3` 등). 메인 Editor는 기본 `room-editor`를 유지한다. 개발용 `-roomProfile`을 명시하면 그 값이 우선하므로 두 인스턴스에 같은 override를 지정하지 않는다.
+
+이 시나리오에서 두 Editor의 실제 MPS/Relay 코드 참가·2/2·플레이어 객체 2개·독립 이동 복제·정상 퇴장/방 삭제 정리를 검증했다. 가상 키보드 기반 자동 검증이며 사람의 화면 확인이나 다른 인터넷 회선 반복 인수를 뜻하지 않는다. 상세 로컬 기록은 `TestResults/online-room/multiplayer-playmode.md`다. 검증 후 시나리오는 정지했고 Play 설정은 OnlineTwoPlayers로 선택해 두었다. 임시 자동 접속/입력 주입 코드는 제거했다.
+
+### 대안: Editor + Windows 실행 파일
+
+- Unity에서 `Assets/Scenes/SampleScene.unity`를 실행하고 좌상단 **온라인 방**을 누른다. **방 만들기**로 생성한 코드를 다른 플레이어에게 전달하고, 상대는 **코드로 참가**를 선택한다.
+- 입장 후 메뉴는 닫히며 자기 캐릭터만 조작한다. 좌상단 온라인 메뉴에서 코드 복사·방 나가기를 할 수 있다. 방장은 나가면 방이 종료된다.
+- 기존 오프라인 플레이는 그대로 유지된다. 패널 입력 중 캐릭터 입력은 차단된다. 자기 캐릭터는 파란색, 상대는 주황색이다.
+- 개발 빌드의 인증 profile은 기본 `room-player`, Editor는 `room-editor`다. 같은 PC에서 개발 빌드 두 개를 사용할 때 두 번째는 `SkyBout.exe -roomProfile room-player-2`처럼 다른 profile을 지정한다. 공개 일반 빌드는 이 개발 옵션을 사용하지 않는다.
+- 생성한 Windows 개발 빌드는 `Builds/OnlineRoom/SkyBout.exe`다. Editor와 이 빌드를 사용하면 서로 다른 개발 인증 profile로 사전 접속 시험을 할 수 있다. 빌드 경고 1건은 기존 Unity Pipeline 도구의 런타임 설정이 없어 Player에서 해당 도구가 비활성화된다는 안내이며, 온라인 게임 기능의 컴파일 오류는 아니다.
+- 실제 창 포커스를 유지해야 하는 씬 입력 테스트 중 다른 창을 클릭하면 의도된 포커스 해제 규칙으로 글라이더가 접혀 시험이 실패할 수 있다. 합격 기준을 완화하지 말고 Unity 창을 전면에 유지해 실행한다. 포커스 해제 자체는 별도 테스트에서 검증한다.
 
 ## 1. 준비
 
 1. 현재 프로젝트 `D:\Projects\SkyBout`를 Unity `6000.3.26f1`로 연다. 새 Unity 프로젝트를 만들거나 에디터를 업그레이드하지 않는다.
-2. 권한 있는 사용자가 Project Settings > Services에서 올바른 Unity Cloud 프로젝트를 연결한다. 현재 저장소의 Cloud ID는 비어 있다. Authentication 및 Multiplayer 서비스 이용 가능 상태·환경·Relay 쿼터/비용을 확인한다. 두 실행 환경은 동일 Cloud 프로젝트/서비스 환경을 사용한다.
+2. Project Settings > Services에서 올바른 Unity Cloud 프로젝트를 확인한다. 초기 설계 시 Cloud ID는 비어 있었지만 구현 시 이미 연결된 것을 확인했고 이를 변경하지 않았다. 실제 익명 인증·Relay 방 생성은 성공했다. 다른 실행 환경도 같은 Cloud 프로젝트/환경을 사용하며 Relay 쿼터/비용은 사용자가 확인한다.
 3. 구현 단계에서 MPS 2.4.1, NGO 2.13.3, Transport 2.7.4 설치 및 lockfile 생성을 확인한다. 컴파일 오류가 있으면 시험을 진행하지 않는다.
 4. `Assets/Scenes/SampleScene.unity`를 열고 NetworkManager/UnityTransport, 등록된 NetworkPlayer prefab, 두 안전 스폰 지점, 온라인 UI 참조를 확인한다. 맵/프로토콜 버전이 양쪽 같아야 한다.
-5. Windows Standalone 개발 빌드를 생성한다. Build Profiles의 씬 목록에 기존 SampleScene이 활성화되어 있어야 한다. 두 PC는 별도 인터넷 회선을 사용한다. 같은 PC 두 프로세스는 사전 점검일 뿐 인터넷 인수 결과가 아니다.
+5. 일상적인 2인 개발 시험은 위 Multiplayer Play Mode 시나리오를 사용하며 빌드는 필요 없다. 배포/별도 회선 인수 때는 Windows Standalone 개발 빌드를 생성하고 Build Profiles에 기존 SampleScene이 활성화되어 있는지 확인한다. 두 PC는 별도 인터넷 회선을 사용한다. 같은 PC의 추가 Editor나 두 프로세스 시험은 해당 외부 회선 인수를 대신하지 않는다.
 6. 각 프로세스에 서로 다른 익명 인증 ID를 사용한다. 같은 PC 시험은 서비스 초기화 전 별도 인증 profile을 선택하는 개발 옵션을 사용하고 토큰을 공유하지 않는다.
 
 ## 2. 자동 회귀

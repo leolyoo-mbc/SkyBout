@@ -1,0 +1,6 @@
+{
+  "name": "SkyBout.OnlineTests",
+  "references": ["SkyBout.Runtime", "SkyBout.Online", "Unity.Netcode.Runtime", "Unity.Networking.Transport", "Unity.InputSystem"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

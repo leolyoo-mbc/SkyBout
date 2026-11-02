@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using System.Text;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -18,6 +19,9 @@ public class GliderSceneTests
     private PlayerInputActions actions;
     private InputDevice[] oldDevices;
     private InputSettings.BackgroundBehavior background;
+    private StringBuilder flightDiagnostics;
+    private object reader;
+    private PropertyInfo readerFocus;
 #if UNITY_EDITOR
     private InputSettings.EditorInputBehaviorInPlayMode editorInput;
 #endif
@@ -47,6 +51,8 @@ public class GliderSceneTests
         Assert.That(player, Is.Not.Null);
         Assert.That(camera, Is.Not.Null);
         body = player.GetComponent<Rigidbody>();
+        reader = Read("inputReader");
+        readerFocus = reader.GetType().GetProperty("HasFocus", BindingFlags.Instance | BindingFlags.NonPublic);
         actions = (PlayerInputActions)Read("playerInput");
         oldDevices = actions.devices.HasValue ? actions.devices.Value.ToArray() : null;
         actions.devices = new InputDevice[] { keyboard };
@@ -62,6 +68,12 @@ public class GliderSceneTests
     [UnityTearDown]
     public IEnumerator TearDown()
     {
+        if (flightDiagnostics != null)
+        {
+            System.IO.Directory.CreateDirectory("TestResults");
+            System.IO.File.WriteAllText("TestResults/007-hold-flight-diagnostics.csv", flightDiagnostics.ToString());
+            flightDiagnostics = null;
+        }
         if (actions != null && player != null) actions.devices = oldDevices;
         if (ownsScene && scene.IsValid() && scene.isLoaded) yield return SceneManager.UnloadSceneAsync(scene);
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
@@ -147,6 +159,7 @@ public class GliderSceneTests
         Quaternion rotation = body.rotation;
         System.IO.Directory.CreateDirectory("TestResults");
         System.IO.File.WriteAllText("TestResults/007-hold-repeat-timings.csv", "sample,deployGameTime,holdGameTime,deathGameTime,overlaySeconds,restartSeconds\n");
+        flightDiagnostics = new StringBuilder("sample,phase,tick,gameTime,footY,velocityY,state,readerFocus,applicationFocus,spacePressed,simulationMode,inputUpdateMode\n");
         for (int sample = 0; sample < 10; sample++)
         {
             Assert.That(visual.activeSelf, Is.False);
@@ -163,15 +176,26 @@ public class GliderSceneTests
             Press(Key.Space);
             // Move farther from the edge using normal input so side contacts cannot count as landing.
             Press(Key.Space, Key.D);
-            for (int i = 0; i < 20; i++) yield return new WaitForFixedUpdate();
+            for (int i = 0; i < 20; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                RecordFlight(sample, "depart", i);
+            }
             Press(Key.Space);
-            for (int i = 0; i < 250; i++) yield return new WaitForFixedUpdate();
-            Assert.That(body.position.y - 1f, Is.EqualTo(2f).Within(0.1f));
+            for (int i = 0; i < 250; i++)
+            {
+                yield return new WaitForFixedUpdate();
+                RecordFlight(sample, "converge", i);
+            }
+            Assert.That(body.position.y - 1f, Is.EqualTo(2f).Within(0.1f),
+                $"Sample {sample}: state={Read("state")}, focus={readerFocus.GetValue(reader)}, " +
+                $"Space={keyboard.spaceKey.isPressed}. See TestResults/007-hold-flight-diagnostics.csv.");
             float held = Time.time;
             float min = float.MaxValue, max = float.MinValue;
             for (int i = 0; i < 500; i++)
             {
                 yield return new WaitForFixedUpdate();
+                RecordFlight(sample, "hold", i);
                 float foot = body.position.y - 1f;
                 min = Mathf.Min(min, foot); max = Mathf.Max(max, foot);
                 Assert.That(foot, Is.EqualTo(2f).Within(0.1f));
@@ -304,6 +328,12 @@ public class GliderSceneTests
         var field = typeof(PlayerMovement).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.That(field, Is.Not.Null, "Missing player field: " + name);
         return field.GetValue(player);
+    }
+
+    private void RecordFlight(int sample, string phase, int tick)
+    {
+        flightDiagnostics.AppendLine(System.FormattableString.Invariant(
+            $"{sample},{phase},{tick},{Time.time:R},{body.position.y - 1f:R},{body.linearVelocity.y:R},{Read("state")},{readerFocus.GetValue(reader)},{Application.isFocused},{keyboard.spaceKey.isPressed},{Physics.simulationMode},{InputSystem.settings.updateMode}"));
     }
 
     private void Press(params Key[] keys) => InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys));

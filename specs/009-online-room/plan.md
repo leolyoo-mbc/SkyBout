@@ -24,6 +24,8 @@
 
 **Target Platform**: 우선 Windows Standalone 개발 빌드 및 Windows Unity Editor. 다른 배포 플랫폼은 이번 검증 대상이 아니다.
 
+**Editor multiplayer workflow**: 사용자 요청에 따라 Multiplayer Play Mode 2.0.2를 설치했다. `Assets/Settings/OnlineTwoPlayers.asset`은 메인 Editor와 추가 Editor 1개를 같은 SampleScene에서 실행하는 빌드 없는 개발 시나리오다. 설치된 Editor의 시나리오 유효성 검사 통과. 개발 인증 profile은 `-name Player2` 등의 문서화된 인수를 사용해 분리하므로 Online 런타임 어셈블리에 Editor API 의존성이 생기지 않는다. 실배포/외부 회선 인수는 여전히 별도 검증한다.
+
 **Project Type**: 기존 Unity 3D 데스크톱 게임에 통합.
 
 **Performance Goals**: 정상 조건의 생성/참가 각각 15초 이내, 전체 실패 확정 30초 이내, 상대 동작 표시 p95 0.5초 이내. NGO tick 초기 30Hz와 원격 보간을 출발점으로 측정한다.
@@ -38,7 +40,7 @@
 
 *Phase 1 이후*: PASS. 입력/카메라 소유권·정원·중복 요청·오류 롤백과 기존 규칙 회귀를 설계에 포함했다. 미해결 설계 질문 없음. 아래 외부 환경 준비는 실제 실행 게이트이며 설계 결정 미정과 구별한다.
 
-**실행 전 필수 게이트**: 현재 `ProjectSettings/ProjectSettings.asset`의 `cloudProjectId`, `projectName`, `organizationId`는 비어 있다. 권한 있는 사용자가 Unity Cloud 프로젝트를 연결하고 대상 환경의 Authentication/Multiplayer 서비스 이용 가능 상태·비용/쿼터를 확인해야 한다. 에이전트가 계정·결제·클라우드 리소스를 임의 생성하지 않는다. 미설정 상태에서 fake 통과나 LAN 시연을 인터넷 인수 통과로 보고하지 않는다.
+**실행 전 필수 게이트**: 초기 설계 시 Cloud ID는 비어 있었지만 구현 시 이미 연결되어 있었고 그 설정을 변경하지 않았다. 실제 익명 인증·Relay 방 생성 성공을 확인했다. Cloud 비용/쿼터 확인과 다른 회선의 두 기기 검증은 여전히 필요하다. 에이전트가 계정·결제·클라우드 리소스를 임의 생성하지 않는다. fake/LAN 시연을 다른 회선의 인터넷 인수 통과로 보고하지 않는다.
 
 ## Project Structure
 
@@ -55,7 +57,7 @@ specs/009-online-room/
 └── contracts/online-room.md
 ```
 
-`tasks.md`는 다음 `/speckit.tasks` 단계에서 생성한다.
+`tasks.md`에 단계별 구현·검증 상태를 관리한다.
 
 ### Source Code (repository root, planned changes)
 
@@ -106,3 +108,18 @@ ProjectSettings/                        # 필요 서비스 연결·네트워크 
 - 실제 NGO: 원격 입력 구독 0, 연결당 캐릭터 1개, 늦은 참가 현재 상태, 자기 재시작, 재참가 슬롯 반환, 호스트 종료.
 - 실제 서비스: `quickstart.md`와 spec SC-001~007을 수행한다. 서비스 기본 120초 제거와 Relay TTL을 명세의 연결 감지 SLA로 오인하지 않는다. 정리 지연이 수용 기준을 깨면 완료가 아니라 실패로 기록한다.
 - 이 단계에서는 코드/씬/패키지를 수정하지 않았고 실행 시험도 하지 않았다.
+
+## Implementation execution status (2026-11-02)
+
+- 구현 전 기준선 PlayMode 시험 실행: 169개 중 168개 통과, 1개 실패 (672.98초).
+- 실패: `GliderSceneTests.TenNaturalWalkoffsHoldTwoMetresReleaseFallAndRestartSameInstances`, `Assets/Tests/PlayMode/GliderSceneTests.cs:169`. 기대 발 높이 2±0.1m, 관찰 -107.33004m. 원인은 미확인.
+- T001 기록은 완료했지만 기준선 검증 실패로 T002 이후 순차 구현을 중단했다. 패키지·게임 코드·씬은 변경하지 않았다. 사용자 변경 `SkyBout.slnx`는 보존했다.
+- 상세 로컬 기록: `TestResults/online-room/baseline.md`. 실패 시험 단독 재현과 원인 확인, 기준선 재검증 후 온라인 구현을 재개한다.
+- 후속 진단: 단독 시험 통과. 전체 재현에서 실제 창 포커스/입력 해제로 글라이더가 정상 취소됨을 확인했다. 테스트에 진단만 추가하고 Unity 전면 유지 후 전체 169/169 통과 (725.92초), 기준선 게이트 해제. 원래 최초 실패의 직접 진단은 없으므로 동일 원인으로 단정하지 않는다.
+- 후속 구현: MPS 2.4.1/NGO 2.13.3/Transport 2.7.4 설치 및 컴파일 성공. 기존 씬에 온라인 메뉴/매니저/두 스폰 지점, 기존 Player에서 추출한 네트워크 prefab을 연결했다. Runtime은 NGO 비의존이며 하위 Online 어셈블리에 SDK를 격리했다.
+- 소유자 입력/카메라/물리, 지속 상태 복제와 재시작 텔레포트, 세션 생성/참가/퇴장, 정원 예약·버전·서비스 멤버 확인, 타임아웃/복구 UI를 구현했다. 서비스 멤버 매핑은 참가자의 임시 ticket을 MPS 멤버 속성과 대조한다. 경쟁용 신뢰 검증을 대체하지 않는다.
+- 통합 후 전체 테스트 182/182 통과 (727.04초). 이후 추가 오류/소속 테스트를 포함한 Online 테스트 18/18 통과 (0.78초). NGO 두 인스턴스 loopback 시험에서 소유자/원격 물리 구분 및 후발 참가 현재 탈락 상태를 확인했다.
+- 실제 서비스 생성 1회: 4.86초, InRoom, 인원 1명, 코드 길이 6, 반복 생성 거절, 종료 후 정리 완료/Offline. 다른 회선의 두 기기 만남·동작 지연·반복 퇴장/재참가·두 시험자 사용성은 미검증이다. 전체 명세 인수 완료를 뜻하지 않는다.
+- 최신 결과: 실제 서비스 생성 두 번째 5.19초, 소유자 키보드 이동 1.225m·점프·유지 글라이딩/해제 접기·오프라인 원본 비활성·종료 정리 성공. 전체 **187/187 테스트 통과** (726.95초), Windows 개발 빌드 성공(오류 0/기존 Pipeline 경고 1). 서로 다른 회선의 두 플레이어 Relay 참가와 장애 반복 인수는 여전히 미검증이다.
+- Multiplayer Play Mode 추가 후 컴파일 성공 및 Online 테스트 **22/22 통과** (0.83초). 새 profile 테스트 4개가 추가됐으며 전체 191개 재실행은 아직 하지 않았다. 2인 시나리오 생성·유효성 확인까지 완료했고 실제 두 Editor의 Relay 참가 시험은 남아 있다.
+- 후속 MPP 실행 검증 완료: 메인 + Player 2가 실제 MPS/Relay 코드 참가에 성공했다. 양쪽 2/2, 플레이어 객체 2개, 소유자/원격 물리 분리와 양방향 이동 수신 확인. 참가자 퇴장 후 방장 1/2, 방 삭제와 양쪽 Offline 정리 성공. 임시 테스트 코드는 제거했고 OnlineTwoPlayers를 현재 Play 설정으로 선택했다. 같은 PC 시험이므로 별도 회선/반복 성능·인간 시각 인수는 남아 있다.
